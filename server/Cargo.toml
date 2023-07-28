@@ -31,7 +31,6 @@ argon2 = "0.5.0"
 async-trait = "0.1"
 base64 = "0.21"
 bytes = "1.4"
-bzip2 = { version = "*", features = ["static"] }
 chrono = "0.4"
 chrono-humanize = "0.2"
 clap = { version = "4.1", default-features = false, features = [
