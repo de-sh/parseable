@@ -204,6 +204,8 @@ pub fn get_stream_schema(
         .get(&stream_name)
         .ok_or(PostError::StreamNotFound(stream_name))?
         .schema
+        .lock()
+        .expect("LOCK")
         .clone();
     into_event_batch(req, body, schema, static_schema_flag, time_partition)
 }

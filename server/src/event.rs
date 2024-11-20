@@ -155,7 +155,9 @@ pub fn commit_schema(stream_name: &str, schema: Arc<Schema>) -> Result<(), Event
     let map = &mut stream_metadata
         .get_mut(stream_name)
         .expect("map has entry for this stream name")
-        .schema;
+        .schema
+        .lock()
+        .expect("LOCK");
     let current_schema = Schema::new(map.values().cloned().collect::<Fields>());
     let schema = Schema::try_merge(vec![current_schema, schema.as_ref().clone()])?;
     map.clear();

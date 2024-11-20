@@ -79,6 +79,8 @@ pub async fn ingest_internal_stream(stream_name: String, body: Bytes) -> Result<
             .get(&stream_name)
             .ok_or(PostError::StreamNotFound(stream_name.clone()))?
             .schema
+            .lock()
+            .expect("LOCK")
             .clone();
         let event = format::json::Event {
             data: body_val,

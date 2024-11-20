@@ -24,7 +24,7 @@ use once_cell::sync::Lazy;
 use relative_path::RelativePathBuf;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use self::error::stream_info::{CheckAlertError, LoadError, MetadataError};
 use crate::alerts::Alerts;
@@ -51,7 +51,7 @@ pub struct StreamInfo(RwLock<HashMap<String, LogStreamMetadata>>);
 
 #[derive(Debug, Default)]
 pub struct LogStreamMetadata {
-    pub schema: HashMap<String, Arc<Field>>,
+    pub schema: Arc<Mutex<HashMap<String, Arc<Field>>>>,
     pub alerts: Alerts,
     pub retention: Option<Retention>,
     pub cache_enabled: bool,
@@ -149,12 +149,21 @@ impl StreamInfo {
             .map(|metadata| metadata.retention.clone())
     }
 
-    pub fn schema(&self, stream_name: &str) -> Result<Arc<Schema>, MetadataError> {
+    pub fn raw_schema(
+        &self,
+        stream_name: &str,
+    ) -> Result<HashMap<String, Arc<Field>>, MetadataError> {
         let map = self.read().expect(LOCK_EXPECT);
         let schema = map
             .get(stream_name)
             .ok_or(MetadataError::StreamMetaNotFound(stream_name.to_string()))
-            .map(|metadata| &metadata.schema)?;
+            .map(|metadata| metadata.schema.lock().expect("LOCK").clone())?;
+
+        Ok(schema)
+    }
+
+    pub fn schema(&self, stream_name: &str) -> Result<Arc<Schema>, MetadataError> {
+        let schema = self.raw_schema(stream_name)?;
 
         // sort fields on read from hashmap as order of fields can differ.
         // This provides a stable output order if schema is same between calls to this function
@@ -299,9 +308,9 @@ impl StreamInfo {
                 Some(static_schema_flag)
             },
             schema: if static_schema.is_empty() {
-                HashMap::new()
+                Default::default()
             } else {
-                static_schema
+                Arc::new(Mutex::new(static_schema))
             },
             stream_type: Some(stream_type.to_string()),
             ..Default::default()
@@ -325,15 +334,9 @@ impl StreamInfo {
         let meta = storage.upsert_stream_metadata(&stream.name).await?;
         let retention = meta.retention;
         let schema = update_schema_from_staging(&stream.name, schema);
-        let schema = HashMap::from_iter(
-            schema
-                .fields
-                .iter()
-                .map(|v| (v.name().to_owned(), v.clone())),
-        );
 
         let metadata = LogStreamMetadata {
-            schema,
+            schema: Arc::new(Mutex::new(schema)),
             alerts,
             retention,
             cache_enabled: meta.cache_enabled,
@@ -408,13 +411,21 @@ impl StreamInfo {
     }
 }
 
-fn update_schema_from_staging(stream_name: &str, current_schema: Schema) -> Schema {
+fn update_schema_from_staging(
+    stream_name: &str,
+    current_schema: Schema,
+) -> HashMap<String, Arc<Field>> {
     let staging_files = StorageDir::new(stream_name).arrow_files();
     let schema = MergedRecordReader::try_new(&staging_files)
         .unwrap()
         .merged_schema();
+    let merged_schemas = Schema::try_merge(vec![schema, current_schema]).unwrap();
 
-    Schema::try_merge(vec![schema, current_schema]).unwrap()
+    merged_schemas
+        .fields
+        .iter()
+        .map(|v| (v.name().to_owned(), v.clone()))
+        .collect()
 }
 
 ///this function updates the data type of time partition field
@@ -512,15 +523,9 @@ pub async fn load_stream_metadata_on_server_start(
 
     let alerts = storage.get_alerts(stream_name).await?;
     let schema = update_schema_from_staging(stream_name, schema);
-    let schema = HashMap::from_iter(
-        schema
-            .fields
-            .iter()
-            .map(|v| (v.name().to_owned(), v.clone())),
-    );
 
     let metadata = LogStreamMetadata {
-        schema,
+        schema: Arc::new(Mutex::new(schema)),
         alerts,
         retention,
         cache_enabled,
