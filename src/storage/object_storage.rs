@@ -21,8 +21,8 @@ use super::{
     ObjectStoreFormat, Permisssion, StorageDir, StorageMetadata,
 };
 use super::{
-    ALERT_FILE_NAME, MANIFEST_FILE, PARSEABLE_METADATA_FILE_NAME, PARSEABLE_ROOT_DIRECTORY,
-    SCHEMA_FILE_NAME, STREAM_METADATA_FILE_NAME, STREAM_ROOT_DIRECTORY,
+    StreamType, ALERT_FILE_NAME, MANIFEST_FILE, PARSEABLE_METADATA_FILE_NAME,
+    PARSEABLE_ROOT_DIRECTORY, SCHEMA_FILE_NAME, STREAM_METADATA_FILE_NAME, STREAM_ROOT_DIRECTORY,
 };
 
 use crate::handlers::http::modal::ingest_server::INGESTOR_META;
@@ -142,16 +142,16 @@ pub trait ObjectStorage: Send + Sync + 'static {
         time_partition: &str,
         time_partition_limit: &str,
         custom_partition: &str,
-        static_schema_flag: &str,
+        static_schema_flag: bool,
         schema: Arc<Schema>,
-        stream_type: &str,
+        stream_type: StreamType,
     ) -> Result<String, ObjectStorageError> {
         let mut format = ObjectStoreFormat::default();
         format.set_id(CONFIG.parseable.username.clone());
         let permission = Permisssion::new(CONFIG.parseable.username.clone());
         format.permissions = vec![permission];
         format.created_at = Local::now().to_rfc3339();
-        format.stream_type = Some(stream_type.to_string());
+        format.stream_type = Some(stream_type);
         if time_partition.is_empty() {
             format.time_partition = None;
         } else {
@@ -167,11 +167,9 @@ pub trait ObjectStorage: Send + Sync + 'static {
         } else {
             format.custom_partition = Some(custom_partition.to_string());
         }
-        if static_schema_flag != "true" {
-            format.static_schema_flag = None;
-        } else {
-            format.static_schema_flag = Some(static_schema_flag.to_string());
-        }
+
+        format.static_schema_flag = static_schema_flag.then(|| static_schema_flag.to_string());
+
         let format_json = to_bytes(&format);
         self.put_object(&schema_path(stream_name), to_bytes(&schema))
             .await?;

@@ -61,7 +61,7 @@ pub async fn ingest(req: HttpRequest, body: Bytes) -> Result<HttpResponse, PostE
                 stream_name
             )));
         }
-        create_stream_if_not_exists(&stream_name, &StreamType::UserDefined.to_string()).await?;
+        create_stream_if_not_exists(&stream_name, StreamType::UserDefined).await?;
 
         flatten_and_push_logs(req, body, stream_name).await?;
         Ok(HttpResponse::Ok().finish())
@@ -114,7 +114,7 @@ pub async fn ingest_otel_logs(req: HttpRequest, body: Bytes) -> Result<HttpRespo
         .find(|&(key, _)| key == STREAM_NAME_HEADER_KEY)
     {
         let stream_name = stream_name.to_str().unwrap().to_owned();
-        create_stream_if_not_exists(&stream_name, &StreamType::UserDefined.to_string()).await?;
+        create_stream_if_not_exists(&stream_name, StreamType::UserDefined).await?;
 
         //flatten logs
         if let Some((_, log_source)) = req.headers().iter().find(|&(key, _)| key == LOG_SOURCE_KEY)
@@ -193,7 +193,7 @@ pub async fn push_logs_unchecked(
 // Check if the stream exists and create a new stream if doesn't exist
 pub async fn create_stream_if_not_exists(
     stream_name: &str,
-    stream_type: &str,
+    stream_type: StreamType,
 ) -> Result<bool, PostError> {
     let mut stream_exists = false;
     if STREAM_INFO.stream_exists(stream_name) {
@@ -215,7 +215,7 @@ pub async fn create_stream_if_not_exists(
         "",
         "",
         "",
-        "",
+        false,
         Arc::new(Schema::empty()),
         stream_type,
     )

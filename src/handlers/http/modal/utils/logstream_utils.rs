@@ -53,7 +53,7 @@ pub async fn create_update_stream(
         stream_type,
     } = req.headers().into();
 
-    if metadata::STREAM_INFO.stream_exists(stream_name) && update_stream_flag != "true" {
+    if metadata::STREAM_INFO.stream_exists(stream_name) && !update_stream_flag {
         return Err(StreamError::Custom {
             msg: format!(
                 "Logstream {stream_name} already exists, please create a new log stream with unique name"
@@ -74,12 +74,12 @@ pub async fn create_update_stream(
         });
     }
 
-    if update_stream_flag == "true" {
+    if update_stream_flag {
         return update_stream(
             req,
             stream_name,
             &time_partition,
-            &static_schema_flag,
+            static_schema_flag,
             &time_partition_limit,
             &custom_partition,
         )
@@ -105,7 +105,7 @@ pub async fn create_update_stream(
         stream_name,
         &time_partition,
         &custom_partition,
-        &static_schema_flag,
+        static_schema_flag,
     )?;
 
     create_stream(
@@ -113,9 +113,9 @@ pub async fn create_update_stream(
         &time_partition,
         time_partition_in_days,
         &custom_partition,
-        &static_schema_flag,
+        static_schema_flag,
         schema,
-        &stream_type,
+        stream_type,
     )
     .await?;
 
@@ -126,7 +126,7 @@ async fn update_stream(
     req: &HttpRequest,
     stream_name: &str,
     time_partition: &str,
-    static_schema_flag: &str,
+    static_schema_flag: bool,
     time_partition_limit: &str,
     custom_partition: &str,
 ) -> Result<HeaderMap, StreamError> {
@@ -139,7 +139,7 @@ async fn update_stream(
             status: StatusCode::BAD_REQUEST,
         });
     }
-    if !static_schema_flag.is_empty() {
+    if !static_schema_flag {
         return Err(StreamError::Custom {
             msg: "Altering the schema of an existing stream is restricted.".to_string(),
             status: StatusCode::BAD_REQUEST,
@@ -172,9 +172,9 @@ struct CreateStreamHeaders {
     pub time_partition: String,
     pub time_partition_limit: String,
     pub custom_partition: String,
-    pub static_schema_flag: String,
-    pub update_stream_flag: String,
-    pub stream_type: String,
+    pub static_schema_flag: bool,
+    pub update_stream_flag: bool,
+    pub stream_type: StreamType,
 }
 
 impl From<&HeaderMap> for CreateStreamHeaders {
@@ -194,15 +194,15 @@ impl From<&HeaderMap> for CreateStreamHeaders {
                 .unwrap_or_default(),
             static_schema_flag: headers
                 .get(HeaderName::from_str(STATIC_SCHEMA_FLAG).unwrap())
-                .map(|v| v.to_str().unwrap().to_owned())
+                .map(|v| serde_json::from_str(v.to_str().unwrap()).unwrap())
                 .unwrap_or_default(),
             update_stream_flag: headers
                 .get(HeaderName::from_str(UPDATE_STREAM_KEY).unwrap())
-                .map(|v| v.to_str().unwrap().to_owned())
+                .map(|v| serde_json::from_str(v.to_str().unwrap()).unwrap())
                 .unwrap_or_default(),
             stream_type: headers
                 .get(HeaderName::from_str(STREAM_TYPE_KEY).unwrap())
-                .map(|v| v.to_str().unwrap().to_owned())
+                .map(|v| serde_json::from_str(v.to_str().unwrap()).unwrap())
                 .unwrap_or_default(),
         }
     }
@@ -261,9 +261,9 @@ pub fn validate_static_schema(
     stream_name: &str,
     time_partition: &str,
     custom_partition: &str,
-    static_schema_flag: &str,
+    static_schema_flag: bool,
 ) -> Result<Arc<Schema>, CreateStreamError> {
-    if static_schema_flag == "true" {
+    if static_schema_flag {
         if body.is_empty() {
             return Err(CreateStreamError::Custom {
                 msg: format!(
@@ -386,12 +386,12 @@ pub async fn create_stream(
     time_partition: &str,
     time_partition_limit: &str,
     custom_partition: &str,
-    static_schema_flag: &str,
+    static_schema_flag: bool,
     schema: Arc<Schema>,
-    stream_type: &str,
+    stream_type: StreamType,
 ) -> Result<(), CreateStreamError> {
     // fail to proceed if invalid stream name
-    if stream_type != StreamType::Internal.to_string() {
+    if stream_type != StreamType::Internal {
         validator::stream_name(&stream_name, stream_type)?;
     }
     // Proceed to create log stream if it doesn't exist
@@ -477,7 +477,7 @@ pub async fn create_stream_and_schema_from_storage(stream_name: &str) -> Result<
             .unwrap_or("");
         let custom_partition = stream_metadata.custom_partition.as_deref().unwrap_or("");
         let static_schema_flag = stream_metadata.static_schema_flag.as_deref().unwrap_or("");
-        let stream_type = stream_metadata.stream_type.as_deref().unwrap_or("");
+        let stream_type = stream_metadata.stream_type.unwrap_or_default();
 
         metadata::STREAM_INFO.add_stream(
             stream_name.to_string(),
