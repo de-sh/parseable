@@ -16,12 +16,15 @@
  *
  */
 
-use std::{collections::HashMap, num::NonZeroU32, sync::Arc};
+use std::{collections::HashMap, num::NonZeroU32, str::FromStr, sync::Arc};
 
-use actix_web::{http::header::HeaderMap, HttpRequest};
+use actix_web::{
+    http::header::{HeaderMap, HeaderName},
+    http::StatusCode,
+    HttpRequest,
+};
 use arrow_schema::{Field, Schema};
 use bytes::Bytes;
-use http::StatusCode;
 
 use crate::{
     handlers::{
@@ -41,14 +44,14 @@ pub async fn create_update_stream(
     body: &Bytes,
     stream_name: &str,
 ) -> Result<HeaderMap, StreamError> {
-    let (
+    let CreateStreamHeaders {
         time_partition,
         time_partition_limit,
         custom_partition,
         static_schema_flag,
         update_stream_flag,
         stream_type,
-    ) = fetch_headers_from_put_stream_request(req);
+    } = req.headers().into();
 
     if metadata::STREAM_INFO.stream_exists(stream_name) && update_stream_flag != "true" {
         return Err(StreamError::Custom {
@@ -164,44 +167,45 @@ async fn validate_and_update_custom_partition(
     Ok(())
 }
 
-pub fn fetch_headers_from_put_stream_request(
-    req: &HttpRequest,
-) -> (String, String, String, String, String, String) {
-    let mut time_partition = String::default();
-    let mut time_partition_limit = String::default();
-    let mut custom_partition = String::default();
-    let mut static_schema_flag = String::default();
-    let mut update_stream = String::default();
-    let mut stream_type = StreamType::UserDefined.to_string();
-    req.headers().iter().for_each(|(key, value)| {
-        if key == TIME_PARTITION_KEY {
-            time_partition = value.to_str().unwrap().to_string();
-        }
-        if key == TIME_PARTITION_LIMIT_KEY {
-            time_partition_limit = value.to_str().unwrap().to_string();
-        }
-        if key == CUSTOM_PARTITION_KEY {
-            custom_partition = value.to_str().unwrap().to_string();
-        }
-        if key == STATIC_SCHEMA_FLAG {
-            static_schema_flag = value.to_str().unwrap().to_string();
-        }
-        if key == UPDATE_STREAM_KEY {
-            update_stream = value.to_str().unwrap().to_string();
-        }
-        if key == STREAM_TYPE_KEY {
-            stream_type = value.to_str().unwrap().to_string();
-        }
-    });
+#[derive(Debug)]
+struct CreateStreamHeaders {
+    pub time_partition: String,
+    pub time_partition_limit: String,
+    pub custom_partition: String,
+    pub static_schema_flag: String,
+    pub update_stream_flag: String,
+    pub stream_type: String,
+}
 
-    (
-        time_partition,
-        time_partition_limit,
-        custom_partition,
-        static_schema_flag,
-        update_stream,
-        stream_type,
-    )
+impl From<&HeaderMap> for CreateStreamHeaders {
+    fn from(headers: &HeaderMap) -> Self {
+        Self {
+            time_partition: headers
+                .get(HeaderName::from_str(TIME_PARTITION_KEY).unwrap())
+                .map(|v| v.to_str().unwrap().to_owned())
+                .unwrap_or_default(),
+            time_partition_limit: headers
+                .get(HeaderName::from_str(TIME_PARTITION_LIMIT_KEY).unwrap())
+                .map(|v| v.to_str().unwrap().to_owned())
+                .unwrap_or_default(),
+            custom_partition: headers
+                .get(HeaderName::from_str(CUSTOM_PARTITION_KEY).unwrap())
+                .map(|v| v.to_str().unwrap().to_owned())
+                .unwrap_or_default(),
+            static_schema_flag: headers
+                .get(HeaderName::from_str(STATIC_SCHEMA_FLAG).unwrap())
+                .map(|v| v.to_str().unwrap().to_owned())
+                .unwrap_or_default(),
+            update_stream_flag: headers
+                .get(HeaderName::from_str(UPDATE_STREAM_KEY).unwrap())
+                .map(|v| v.to_str().unwrap().to_owned())
+                .unwrap_or_default(),
+            stream_type: headers
+                .get(HeaderName::from_str(STREAM_TYPE_KEY).unwrap())
+                .map(|v| v.to_str().unwrap().to_owned())
+                .unwrap_or_default(),
+        }
+    }
 }
 
 pub fn validate_time_partition_limit(
