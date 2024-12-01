@@ -255,18 +255,13 @@ impl DeploymentInfo {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub enum AlertState {
+    #[default]
     Listening,
     SetToFiring,
     Firing,
     Resolved,
-}
-
-impl Default for AlertState {
-    fn default() -> Self {
-        Self::Listening
-    }
 }
 
 impl fmt::Display for AlertState {
