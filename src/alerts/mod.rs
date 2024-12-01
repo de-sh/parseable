@@ -24,7 +24,6 @@ use datafusion::arrow::compute::kernels::cast;
 use datafusion::arrow::datatypes::Schema;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::fmt;
 
 pub mod parser;
 pub mod rule;
@@ -83,7 +82,7 @@ impl Alert {
                         .with_label_values(&[
                             context.stream.as_str(),
                             context.alert_info.alert_name.as_str(),
-                            context.alert_info.alert_state.to_string().as_str(),
+                            context.alert_info.alert_state.as_str(),
                         ])
                         .inc();
                     for target in &self.targets {
@@ -264,13 +263,13 @@ pub enum AlertState {
     Resolved,
 }
 
-impl fmt::Display for AlertState {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            AlertState::Listening => write!(f, "Listening"),
-            AlertState::SetToFiring => write!(f, "SetToFiring"),
-            AlertState::Firing => write!(f, "Firing"),
-            AlertState::Resolved => write!(f, "Resolved"),
+impl AlertState {
+    fn as_str(&self) -> &str {
+        match self {
+            Self::Listening => "Listening",
+            Self::SetToFiring => "SetToFiring",
+            Self::Firing => "Firing",
+            Self::Resolved => "Resolved",
         }
     }
 }
