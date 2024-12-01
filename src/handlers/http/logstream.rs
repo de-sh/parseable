@@ -795,8 +795,29 @@ pub mod error {
             stream_name: String,
             err: ObjectStorageError,
         },
-        #[error("{msg}")]
-        Custom { msg: String, status: StatusCode },
+        #[error("Failed to update custom partition in metadata")]
+        CustomPartition,
+        #[error("Time partition {0} cannot be set as custom partition")]
+        TimePartition(String),
+        #[error("Failed to update time partition limit in metadata")]
+        TimePartitionLimit,
+        #[error("Custom partition field {partition} does not exist in the schema for the stream {stream_name}")]
+        Schema {
+            partition: String,
+            stream_name: String,
+        },
+        #[error("Please provide schema in the request body for static schema logstream {0}")]
+        EmptyBody(String),
+        #[error("Unable to commit static schema, logstream {0} not created")]
+        StaticSchema(String),
+        #[error("Could not convert duration to an unsigned number")]
+        UnsignedNumber,
+        #[error("Missing 'd' suffix for duration value")]
+        Suffix,
+        #[error("Maximum 3 custom partition keys are supported")]
+        PartitionKeyCount,
+        #[error("time partition {0} cannot be set as custom partition")]
+        UnsupportedTimePartition(String),
         #[error("Could not deserialize into JSON object, {0}")]
         SerdeError(#[from] serde_json::Error),
     }
@@ -861,12 +882,22 @@ pub mod error {
                 StreamError::CreateStream(CreateStreamError::Storage { .. }) => {
                     StatusCode::INTERNAL_SERVER_ERROR
                 }
-                StreamError::CreateStream(CreateStreamError::Custom { .. }) => {
-                    StatusCode::INTERNAL_SERVER_ERROR
-                }
                 StreamError::CreateStream(CreateStreamError::SerdeError(_)) => {
                     StatusCode::BAD_REQUEST
                 }
+                StreamError::CreateStream(
+                    CreateStreamError::CustomPartition | CreateStreamError::TimePartitionLimit,
+                ) => StatusCode::INTERNAL_SERVER_ERROR,
+                StreamError::CreateStream(
+                    CreateStreamError::Schema { .. }
+                    | CreateStreamError::TimePartition(_)
+                    | CreateStreamError::EmptyBody(_)
+                    | CreateStreamError::StaticSchema(_)
+                    | CreateStreamError::Suffix
+                    | CreateStreamError::UnsignedNumber
+                    | CreateStreamError::PartitionKeyCount
+                    | CreateStreamError::UnsupportedTimePartition(_),
+                ) => StatusCode::BAD_REQUEST,
                 StreamError::CacheNotEnabled(_) => StatusCode::BAD_REQUEST,
                 StreamError::StreamNotFound(_) => StatusCode::NOT_FOUND,
                 StreamError::Custom { status, .. } => *status,

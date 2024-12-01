@@ -212,17 +212,11 @@ pub fn validate_time_partition_limit(
     time_partition_limit: &str,
 ) -> Result<&str, CreateStreamError> {
     if !time_partition_limit.ends_with('d') {
-        return Err(CreateStreamError::Custom {
-            msg: "Missing 'd' suffix for duration value".to_string(),
-            status: StatusCode::BAD_REQUEST,
-        });
+        return Err(CreateStreamError::Suffix);
     }
     let days = &time_partition_limit[0..time_partition_limit.len() - 1];
     if days.parse::<NonZeroU32>().is_err() {
-        return Err(CreateStreamError::Custom {
-            msg: "Could not convert duration to an unsigned number".to_string(),
-            status: StatusCode::BAD_REQUEST,
-        });
+        return Err(CreateStreamError::UnsignedNumber);
     }
 
     Ok(days)
@@ -231,10 +225,7 @@ pub fn validate_time_partition_limit(
 pub fn validate_custom_partition(custom_partition: &str) -> Result<(), CreateStreamError> {
     let custom_partition_list = custom_partition.split(',').collect::<Vec<&str>>();
     if custom_partition_list.len() > 3 {
-        return Err(CreateStreamError::Custom {
-            msg: "Maximum 3 custom partition keys are supported".to_string(),
-            status: StatusCode::BAD_REQUEST,
-        });
+        return Err(CreateStreamError::PartitionKeyCount);
     }
     Ok(())
 }
@@ -245,13 +236,9 @@ pub fn validate_time_with_custom_partition(
 ) -> Result<(), CreateStreamError> {
     let custom_partition_list = custom_partition.split(',').collect::<Vec<&str>>();
     if custom_partition_list.contains(&time_partition) {
-        return Err(CreateStreamError::Custom {
-            msg: format!(
-                "time partition {} cannot be set as custom partition",
-                time_partition
-            ),
-            status: StatusCode::BAD_REQUEST,
-        });
+        return Err(CreateStreamError::UnsupportedTimePartition(
+            time_partition.to_owned(),
+        ));
     }
     Ok(())
 }
@@ -265,23 +252,13 @@ pub fn validate_static_schema(
 ) -> Result<Arc<Schema>, CreateStreamError> {
     if static_schema_flag {
         if body.is_empty() {
-            return Err(CreateStreamError::Custom {
-                msg: format!(
-                    "Please provide schema in the request body for static schema logstream {stream_name}"
-                ),
-                status: StatusCode::BAD_REQUEST,
-            });
+            return Err(CreateStreamError::EmptyBody(stream_name.to_string()));
         }
 
         let static_schema: StaticSchema = serde_json::from_slice(body)?;
         let parsed_schema =
             convert_static_schema_to_arrow_schema(static_schema, time_partition, custom_partition)
-                .map_err(|_| CreateStreamError::Custom {
-                    msg: format!(
-                        "Unable to commit static schema, logstream {stream_name} not created"
-                    ),
-                    status: StatusCode::BAD_REQUEST,
-                })?;
+                .map_err(|_| CreateStreamError::StaticSchema(stream_name.to_owned()))?;
 
         return Ok(parsed_schema);
     }
@@ -305,10 +282,7 @@ pub async fn update_time_partition_limit_in_stream(
         .update_time_partition_limit(&stream_name, time_partition_limit.to_string())
         .is_err()
     {
-        return Err(CreateStreamError::Custom {
-            msg: "failed to update time partition limit in metadata".to_string(),
-            status: StatusCode::EXPECTATION_FAILED,
-        });
+        return Err(CreateStreamError::TimePartitionLimit);
     }
 
     Ok(())
@@ -338,23 +312,17 @@ pub async fn update_custom_partition_in_stream(
                 })
                 .collect();
 
-            for partition in &custom_partition_list {
-                if !custom_partition_exists[*partition] {
-                    return Err(CreateStreamError::Custom {
-                        msg: format!("custom partition field {} does not exist in the schema for the stream {}", partition, stream_name),
-                        status: StatusCode::BAD_REQUEST,
+            for partition in custom_partition_list {
+                if !custom_partition_exists[partition] {
+                    return Err(CreateStreamError::Schema {
+                        partition: partition.to_owned(),
+                        stream_name,
                     });
                 }
 
                 if let Some(time_partition) = time_partition.clone() {
-                    if time_partition == *partition {
-                        return Err(CreateStreamError::Custom {
-                            msg: format!(
-                                "time partition {} cannot be set as custom partition",
-                                partition
-                            ),
-                            status: StatusCode::BAD_REQUEST,
-                        });
+                    if time_partition == partition {
+                        return Err(CreateStreamError::TimePartition(partition.to_owned()));
                     }
                 }
             }
@@ -372,10 +340,7 @@ pub async fn update_custom_partition_in_stream(
         .update_custom_partition(&stream_name, custom_partition.to_string())
         .is_err()
     {
-        return Err(CreateStreamError::Custom {
-            msg: "failed to update custom partition in metadata".to_string(),
-            status: StatusCode::EXPECTATION_FAILED,
-        });
+        return Err(CreateStreamError::CustomPartition);
     }
 
     Ok(())
