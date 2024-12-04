@@ -46,6 +46,8 @@ use tokio::fs::{self, DirEntry};
 use tokio::io::AsyncWriteExt;
 use tokio_stream::wrappers::ReadDirStream;
 
+static INSTANCE: OnceCell<HotTierManager> = OnceCell::new();
+
 pub const STREAM_HOT_TIER_FILENAME: &str = ".hot_tier.json";
 pub const MIN_STREAM_HOT_TIER_SIZE_BYTES: u64 = 10737418240; // 10 GiB
 const HOT_TIER_SYNC_DURATION: Interval = clokwerk::Interval::Minutes(1);
@@ -71,20 +73,19 @@ pub struct HotTierManager {
 
 impl HotTierManager {
     pub fn global() -> Option<&'static HotTierManager> {
-        static INSTANCE: OnceCell<HotTierManager> = OnceCell::new();
-
-        let hot_tier_path = &CONFIG.parseable.hot_tier_storage_path;
-        if hot_tier_path.is_none() {
-            return None;
-        }
-        Some(INSTANCE.get_or_init(|| {
-            let hot_tier_path = hot_tier_path.as_ref().unwrap().clone();
-            std::fs::create_dir_all(&hot_tier_path).unwrap();
-            HotTierManager {
-                filesystem: LocalFileSystem::new(),
-                hot_tier_path,
-            }
-        }))
+        CONFIG
+            .parseable
+            .hot_tier_storage_path
+            .as_ref()
+            .map(|hot_tier_path| {
+                INSTANCE.get_or_init(|| {
+                    std::fs::create_dir_all(hot_tier_path).unwrap();
+                    HotTierManager {
+                        filesystem: LocalFileSystem::new(),
+                        hot_tier_path: hot_tier_path.clone(),
+                    }
+                })
+            })
     }
 
     ///get the total hot tier size for all streams
