@@ -65,6 +65,7 @@ pub struct StreamHotTier {
     pub oldest_date_time_entry: Option<String>,
 }
 
+#[derive(Debug)]
 pub struct HotTierManager {
     filesystem: LocalFileSystem,
     hot_tier_path: PathBuf,

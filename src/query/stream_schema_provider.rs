@@ -29,7 +29,6 @@ use bytes::Bytes;
 use chrono::{DateTime, NaiveDateTime, Timelike, Utc};
 use datafusion::catalog::Session;
 use datafusion::common::stats::Precision;
-use datafusion::logical_expr::utils::conjunction;
 use datafusion::{
     catalog::SchemaProvider,
     common::{
@@ -126,44 +125,60 @@ async fn create_parquet_physical_plan(
     state: &dyn Session,
     time_partition: Option<String>,
 ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
-    let filters = if let Some(expr) = conjunction(filters.to_vec()) {
-        let table_df_schema = schema.as_ref().clone().to_dfschema()?;
-        let filters = create_physical_expr(&expr, &table_df_schema, state.execution_props())?;
-        Some(filters)
+    // Convert filters to physical expressions if applicable
+    let filters = filters
+        .iter()
+        .cloned()
+        .reduce(|a, b| a.and(b))
+        .map(|expr| {
+            let table_df_schema = schema.as_ref().clone().to_dfschema()?;
+            create_physical_expr(&expr, &table_df_schema, state.execution_props())
+        })
+        .transpose()?;
+
+    // Determine the column for sorting
+    let sort_column = if let Some(partition_col) = &time_partition {
+        physical_plan::expressions::col(partition_col, &schema)?
     } else {
-        None
+        physical_plan::expressions::col(DEFAULT_TIMESTAMP_KEY, &schema)?
     };
 
+    // Create the sort expression
     let sort_expr = PhysicalSortExpr {
-        expr: if let Some(time_partition) = time_partition {
-            physical_plan::expressions::col(&time_partition, &schema)?
-        } else {
-            physical_plan::expressions::col(DEFAULT_TIMESTAMP_KEY, &schema)?
-        },
+        expr: sort_column,
         options: SortOptions {
             descending: true,
             nulls_first: true,
         },
     };
+
+    // Configure the Parquet file format
     let file_format = ParquetFormat::default().with_enable_pruning(true);
 
-    // create the execution plan
+    // Prepare the file scan configuration
+    let file_scan_config = FileScanConfig {
+        object_store_url,
+        file_schema: schema.clone(),
+        file_groups: partitions,
+        statistics,
+        projection: projection.cloned(),
+        limit,
+        output_ordering: vec![vec![sort_expr]],
+        table_partition_cols: Vec::new(),
+    };
+
+    // Generate the physical execution plan
     let plan = file_format
         .create_physical_plan(
-            state.as_any().downcast_ref::<SessionState>().unwrap(), // Remove this when ParquetFormat catches up
-            FileScanConfig {
-                object_store_url,
-                file_schema: schema.clone(),
-                file_groups: partitions,
-                statistics,
-                projection: projection.cloned(),
-                limit,
-                output_ordering: vec![vec![sort_expr]],
-                table_partition_cols: Vec::new(),
-            },
+            state
+                .as_any()
+                .downcast_ref::<SessionState>()
+                .expect("Session must be a SessionState"),
+            file_scan_config,
             filters.as_ref(),
         )
         .await?;
+
     Ok(plan)
 }
 
