@@ -20,7 +20,7 @@ use crate::catalog::manifest::File;
 use crate::hottier::HotTierManager;
 use crate::option::Mode;
 use crate::{
-    catalog::snapshot::{self, Snapshot},
+    catalog::snapshot::Snapshot,
     storage::{ObjectStoreFormat, STREAM_ROOT_DIRECTORY},
 };
 use arrow_array::RecordBatch;
@@ -342,17 +342,20 @@ impl TableProvider for StandardTableProvider {
             .get_store(&self.url)
             .unwrap();
         let glob_storage = CONFIG.storage().get_object_store();
-
         let object_store_format = glob_storage
             .get_object_store_format(&self.stream)
             .await
             .map_err(|err| DataFusionError::Plan(err.to_string()))?;
         let time_partition = object_store_format.time_partition;
+
         let mut time_filters = extract_primary_filter(filters, time_partition.clone());
         if time_filters.is_empty() {
-            return Err(DataFusionError::Plan("potentially unbounded query on time range. Table scanning requires atleast one time bound".to_string()));
+            return Err(DataFusionError::Plan(
+                "Table scanning requires at least one time bound for the query.".to_string(),
+            ));
         }
 
+        // Memory Execution Plan (for current stream data in memory)
         if include_now(filters, time_partition.clone()) {
             if let Some(records) =
                 event::STREAM_WRITERS.recordbatches_cloned(&self.stream, &self.schema)
@@ -364,31 +367,30 @@ impl TableProvider for StandardTableProvider {
                         .await?,
                 );
             }
-        };
-        let mut merged_snapshot: snapshot::Snapshot = Snapshot::default();
-        if CONFIG.parseable.mode == Mode::Query {
+        }
+
+        // Merged snapshot creation for query mode
+        let merged_snapshot = if CONFIG.parseable.mode == Mode::Query {
             let path = RelativePathBuf::from_iter([&self.stream, STREAM_ROOT_DIRECTORY]);
-            let obs = glob_storage
+            glob_storage
                 .get_objects(
                     Some(&path),
                     Box::new(|file_name| file_name.ends_with("stream.json")),
                 )
-                .await;
-            if let Ok(obs) = obs {
-                for ob in obs {
-                    if let Ok(object_store_format) =
-                        serde_json::from_slice::<ObjectStoreFormat>(&ob)
-                    {
-                        let snapshot = object_store_format.snapshot;
-                        for manifest in snapshot.manifest_list {
-                            merged_snapshot.manifest_list.push(manifest);
-                        }
-                    }
-                }
-            }
+                .await
+                .ok()
+                .map(|obs| {
+                    obs.into_iter()
+                        .fold(Snapshot::default(), |mut snapshot, ob| {
+                            let format = serde_json::from_slice::<ObjectStoreFormat>(&ob).unwrap();
+                            snapshot.manifest_list.extend(format.snapshot.manifest_list);
+                            snapshot
+                        })
+                })
+                .unwrap_or_default()
         } else {
-            merged_snapshot = object_store_format.snapshot;
-        }
+            object_store_format.snapshot
+        };
 
         // Is query timerange is overlapping with older data.
         // if true, then get listing table time filters and execution plan separately
@@ -415,6 +417,7 @@ impl TableProvider for StandardTableProvider {
             };
         }
 
+        // Manifest file collection
         let mut manifest_files = collect_from_snapshot(
             &merged_snapshot,
             &time_filters,
@@ -465,6 +468,8 @@ impl TableProvider for StandardTableProvider {
                 .await?;
             }
         }
+
+        // Found everything locally
         if manifest_files.is_empty() {
             QUERY_CACHE_HIT.with_label_values(&[&self.stream]).inc();
             return final_plan(
@@ -474,6 +479,7 @@ impl TableProvider for StandardTableProvider {
             );
         }
 
+        // Remote Execution Plan
         let (partitioned_files, statistics) = partitioned_files(manifest_files, &self.schema);
         let remote_exec = create_parquet_physical_plan(
             ObjectStoreUrl::parse(glob_storage.store_url()).unwrap(),
@@ -488,6 +494,7 @@ impl TableProvider for StandardTableProvider {
         )
         .await?;
 
+        // Combine all execution plans
         Ok(final_plan(
             vec![
                 listing_exec,
