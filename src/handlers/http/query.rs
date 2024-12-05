@@ -30,7 +30,7 @@ use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::{error, info, warn};
+use tracing::{error, info, instrument, span, warn, Level};
 
 use crate::event::error::EventError;
 use crate::handlers::http::fetch_schema;
@@ -70,8 +70,10 @@ pub struct Query {
     pub filter_tags: Option<Vec<String>>,
 }
 
+#[instrument]
 pub async fn query(req: HttpRequest, query_request: Query) -> Result<impl Responder, QueryError> {
     let session_state = QUERY_SESSION.state();
+    let _guard = span!(Level::DEBUG, "Logical Plan Construction");
     let raw_logical_plan = match session_state
         .create_logical_plan(&query_request.query)
         .await
@@ -85,6 +87,7 @@ pub async fn query(req: HttpRequest, query_request: Query) -> Result<impl Respon
                 .await?
         }
     };
+    drop(_guard);
     // create a visitor to extract the table name
     let mut visitor = TableScanVisitor::default();
     let _ = raw_logical_plan.visit(&mut visitor);
@@ -174,6 +177,7 @@ pub async fn query(req: HttpRequest, query_request: Query) -> Result<impl Respon
     Ok(response)
 }
 
+#[instrument]
 pub async fn update_schema_when_distributed(tables: Vec<String>) -> Result<(), QueryError> {
     if CONFIG.parseable.mode == Mode::Query {
         for table in tables {
@@ -192,10 +196,13 @@ pub async fn update_schema_when_distributed(tables: Vec<String>) -> Result<(), Q
 /// Create streams for querier if they do not exist
 /// get list of streams from memory and storage
 /// create streams for memory from storage if they do not exist
+#[instrument]
 pub async fn create_streams_for_querier() {
     let querier_streams = STREAM_INFO.list_streams();
     let store = CONFIG.storage().get_object_store();
+    let _guard = span!(Level::DEBUG, "Listing Streams");
     let storage_streams = store.list_streams().await.unwrap();
+    drop(_guard);
     for stream in storage_streams {
         let stream_name = stream.name;
 
@@ -206,6 +213,7 @@ pub async fn create_streams_for_querier() {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[instrument]
 pub async fn put_results_in_cache(
     cache_results: Option<&str>,
     user_id: Option<&str>,
@@ -263,6 +271,7 @@ pub async fn put_results_in_cache(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[instrument]
 pub async fn get_results_from_cache(
     show_cached: Option<&str>,
     query_cache_manager: Option<&QueryCacheManager>,
@@ -385,6 +394,7 @@ impl FromRequest for Query {
     }
 }
 
+#[instrument]
 pub async fn into_query(
     query: &Query,
     session_state: &SessionState,

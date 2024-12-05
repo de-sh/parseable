@@ -30,7 +30,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tokio::fs as AsyncFs;
 use tokio::{fs, sync::Mutex};
-use tracing::{error, info, warn};
+use tracing::{error, info, instrument, warn};
 
 use crate::handlers::http::users::USERS_ROOT_DIR;
 use crate::metadata::STREAM_INFO;
@@ -88,6 +88,7 @@ impl QueryCache {
         self.files.remove(key)
     }
 
+    #[instrument]
     pub async fn delete(&mut self, key: &CacheMetadata, path: PathBuf) -> Result<(), CacheError> {
         self.files.delete(key);
         AsyncFs::remove_file(path).await?;
@@ -101,6 +102,7 @@ impl QueryCache {
 
     // read the parquet
     // return the recordbatches
+    #[instrument]
     pub async fn get_cached_records(
         &self,
         path: &PathBuf,
@@ -141,6 +143,7 @@ impl QueryCacheMeta {
     }
 }
 
+#[derive(Debug)]
 pub struct QueryCacheManager {
     filesystem: LocalFileSystem,
     cache_path: PathBuf, // refers to the path passed in the env var
@@ -241,6 +244,7 @@ impl QueryCacheManager {
         Ok(())
     }
 
+    #[instrument]
     pub async fn get_cache(&self, stream: &str, user_id: &str) -> Result<QueryCache, CacheError> {
         let path = query_cache_file_path(&self.cache_path, stream, user_id).unwrap();
         let res = self
@@ -320,6 +324,7 @@ impl QueryCacheManager {
         Ok(())
     }
 
+    #[instrument]
     pub async fn create_parquet_cache(
         &self,
         table_name: &str,
@@ -364,6 +369,7 @@ impl QueryCacheManager {
         .await
     }
 
+    #[instrument]
     pub async fn clear_cache(&self, stream: &str, user_id: &str) -> Result<(), CacheError> {
         let cache = self.get_cache(stream, user_id).await?;
         let map = cache.files.values().collect_vec();

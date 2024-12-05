@@ -20,6 +20,7 @@ use actix_cors::Cors;
 use arrow_schema::Schema;
 use itertools::Itertools;
 use serde_json::Value;
+use tracing::instrument;
 
 use crate::{option::CONFIG, storage::STREAM_ROOT_DIRECTORY};
 
@@ -75,6 +76,7 @@ pub fn base_path_without_preceding_slash() -> String {
 /// # Returns
 ///
 /// An `anyhow::Result` containing the `arrow_schema::Schema` for the specified stream.
+#[instrument]
 pub async fn fetch_schema(stream_name: &str) -> anyhow::Result<arrow_schema::Schema> {
     let path_prefix =
         relative_path::RelativePathBuf::from(format!("{}/{}", stream_name, STREAM_ROOT_DIRECTORY));

@@ -48,7 +48,7 @@ use datafusion::{datasource::listing::ListingTableUrl, execution::runtime_env::R
 use itertools::Itertools;
 use relative_path::RelativePath;
 use relative_path::RelativePathBuf;
-use tracing::error;
+use tracing::{error, instrument};
 
 use std::collections::BTreeMap;
 use std::{
@@ -407,6 +407,7 @@ pub trait ObjectStorage: std::fmt::Debug + Send + Sync + 'static {
     }
 
     // gets the snapshot of the stream
+    #[instrument]
     async fn get_object_store_format(
         &self,
         stream: &str,
@@ -662,6 +663,7 @@ pub trait ObjectStorage: std::fmt::Debug + Send + Sync + 'static {
     fn get_bucket_name(&self) -> String;
 }
 
+#[instrument]
 pub async fn commit_schema_to_storage(
     stream_name: &str,
     schema: Schema,

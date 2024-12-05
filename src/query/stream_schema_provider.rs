@@ -55,6 +55,7 @@ use itertools::Itertools;
 use object_store::{path::Path, ObjectStore};
 use relative_path::RelativePathBuf;
 use std::{any::Any, collections::HashMap, ops::Bound, sync::Arc};
+use tracing::{instrument, span, Level};
 use url::Url;
 
 use crate::{
@@ -125,6 +126,7 @@ async fn create_parquet_physical_plan(
     state: &dyn Session,
     time_partition: Option<String>,
 ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
+    let _guard = span!(Level::DEBUG, "Construct Physical Plan");
     // Convert filters to physical expressions if applicable
     let filters = filters
         .iter()
@@ -182,6 +184,7 @@ async fn create_parquet_physical_plan(
     Ok(plan)
 }
 
+#[instrument]
 async fn collect_from_snapshot(
     snapshot: &catalog::snapshot::Snapshot,
     time_filters: &[PartialTimeFilter],
@@ -332,6 +335,7 @@ impl TableProvider for StandardTableProvider {
         filters: &[Expr],
         limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
+        let _guard = span!(Level::DEBUG, "Execution Plan Preparation");
         let mut memory_exec = None;
         let mut cache_exec = None;
         let mut hot_tier_exec = None;
@@ -357,6 +361,7 @@ impl TableProvider for StandardTableProvider {
 
         // Memory Execution Plan (for current stream data in memory)
         if include_now(filters, time_partition.clone()) {
+            let _guard = span!(Level::DEBUG, "Memory Execution Plan Preparation");
             if let Some(records) =
                 event::STREAM_WRITERS.recordbatches_cloned(&self.stream, &self.schema)
             {
@@ -371,6 +376,7 @@ impl TableProvider for StandardTableProvider {
 
         // Merged snapshot creation for query mode
         let merged_snapshot = if CONFIG.parseable.mode == Mode::Query {
+            let _guard = span!(Level::DEBUG, "Merging snapshots");
             let path = RelativePathBuf::from_iter([&self.stream, STREAM_ROOT_DIRECTORY]);
             glob_storage
                 .get_objects(
@@ -398,8 +404,8 @@ impl TableProvider for StandardTableProvider {
             let listing_time_fiters =
                 return_listing_time_filters(&merged_snapshot.manifest_list, &mut time_filters);
 
-            listing_exec = if let Some(listing_time_filter) = listing_time_fiters {
-                legacy_listing_table(
+            if let Some(listing_time_filter) = listing_time_fiters {
+                listing_exec = legacy_listing_table(
                     self.stream.clone(),
                     glob_storage.clone(),
                     object_store.clone(),
@@ -412,9 +418,7 @@ impl TableProvider for StandardTableProvider {
                     time_partition.clone(),
                 )
                 .await?
-            } else {
-                None
-            };
+            }
         }
 
         // Manifest file collection
@@ -545,6 +549,7 @@ async fn get_cache_exectuion_plan(
     state: &dyn Session,
     time_partition: Option<String>,
 ) -> Result<Option<Arc<dyn ExecutionPlan>>, DataFusionError> {
+    let _guard = span!(Level::DEBUG, "Construct Execution Plan against Cache");
     let (cached, remainder) = cache_manager
         .partition_on_cached(stream, manifest_files.clone(), |file: &File| {
             &file.file_path
@@ -594,6 +599,7 @@ async fn get_hottier_exectuion_plan(
     state: &dyn Session,
     time_partition: Option<String>,
 ) -> Result<Option<Arc<dyn ExecutionPlan>>, DataFusionError> {
+    let _guard = span!(Level::DEBUG, "Execution Plan for Hot Tier");
     let (hot_tier_files, remainder) = hot_tier_manager
         .get_hot_tier_manifest_files(stream, manifest_files.clone())
         .await
@@ -646,6 +652,7 @@ async fn legacy_listing_table(
     limit: Option<usize>,
     time_partition: Option<String>,
 ) -> Result<Option<Arc<dyn ExecutionPlan>>, DataFusionError> {
+    let _guard = span!(Level::DEBUG, "Execution Plan for Legacy Listings");
     let remote_table = ListingTableBuilder::new(stream)
         .populate_via_listing(glob_storage.clone(), object_store, time_filters)
         .and_then(|builder| async {

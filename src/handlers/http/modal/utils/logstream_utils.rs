@@ -22,6 +22,7 @@ use actix_web::{http::header::HeaderMap, HttpRequest};
 use arrow_schema::{Field, Schema};
 use bytes::Bytes;
 use http::StatusCode;
+use tracing::instrument;
 
 use crate::{
     handlers::{
@@ -438,6 +439,7 @@ pub async fn create_stream(
 /// list all streams from storage
 /// if stream exists in storage, create stream and schema from storage
 /// and add it to the memory map
+#[instrument]
 pub async fn create_stream_and_schema_from_storage(stream_name: &str) -> Result<bool, StreamError> {
     // Proceed to create log stream if it doesn't exist
     let storage = CONFIG.storage().get_object_store();

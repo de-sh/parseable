@@ -38,6 +38,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use sysinfo::System;
+use tracing::instrument;
 
 use self::error::ExecuteError;
 use self::stream_schema_provider::GlobalSchemaProvider;
@@ -126,6 +127,7 @@ impl Query {
         SessionContext::new_with_state(state)
     }
 
+    #[instrument]
     pub async fn execute(
         &self,
         stream_name: String,
