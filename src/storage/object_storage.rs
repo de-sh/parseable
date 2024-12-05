@@ -67,7 +67,7 @@ pub trait ObjectStorageProvider: StorageMetrics + std::fmt::Debug + Send + Sync 
 }
 
 #[async_trait]
-pub trait ObjectStorage: Send + Sync + 'static {
+pub trait ObjectStorage: std::fmt::Debug + Send + Sync + 'static {
     async fn get_object(&self, path: &RelativePath) -> Result<Bytes, ObjectStorageError>;
     // TODO: make the filter function optional as we may want to get all objects
     async fn get_objects(
