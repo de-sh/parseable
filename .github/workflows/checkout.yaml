@@ -1,0 +1,20 @@
+name: test checkout
+
+on:
+  push:
+    branches:
+      - checkout
+
+jobs:
+  test-checkout:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout quest repository
+        uses: actions/checkout@v3
+        with:
+          repository: parseablehq/quest
+          path: clickbench
+          sparse-checkout: clickbench
+
+      - run: tree
