@@ -17,4 +17,12 @@ jobs:
           path: clickbench
           sparse-checkout: clickbench
 
-      - run: tree
+      - name: Rename and Upload Result File
+        run: |
+          SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)
+          cp run_query.sh result_${SHORT_SHA}.csv
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: result_${{ github.sha }}
+          path: result_${SHORT_SHA}.csv
