@@ -18,12 +18,12 @@ jobs:
 
       - name: Rename and Upload Result File
         run: |
-          tree
           cd quest/clickbench
           SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)
-          cp run_query.sh result_${SHORT_SHA}.csv
+          echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_ENV
+          cp run_query.sh result_${{ env.SHORT_SHA }}.csv
 
       - uses: actions/upload-artifact@v3
         with:
-          name: result_${{ github.sha }}
-          path: result_${SHORT_SHA}.csv
+          name: result_${{ env.SHORT_SHA }}
+          path: result_${{ env.SHORT_SHA }}.csv
