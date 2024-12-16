@@ -19,7 +19,7 @@ jobs:
       - name: Rename and Upload Result File
         run: |
           tree
-          cd clickbench
+          cd quest/clickbench
           SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)
           cp run_query.sh result_${SHORT_SHA}.csv
 
