@@ -20,11 +20,10 @@ jobs:
         run: |
           cd quest/clickbench
           SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)
-          echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_ENV
           cp run_query.sh "result_$SHORT_SHA.csv"
+          echo "RESULT_FILE=$(realpath "result_$SHORT_SHA.csv")" >> $GITHUB_ENV
           tree
 
       - uses: actions/upload-artifact@v3
         with:
-          name: result_${{ env.SHORT_SHA }}
-          path: result_${{ env.SHORT_SHA }}.csv
+          path: ${{ env.RESULT_FILE }}
