@@ -1,0 +1,109 @@
+name: Benchmark Parseable
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy-benchmark-terminate:
+    runs-on: ubuntu-latest
+
+    env:
+      INSTANCE_TYPE: c6a.4xlarge
+      AMI_ID: abcd1234
+      START_TIME: ${{ secrets.START_TIME }}
+      END_TIME: ${{ secrets.END_TIME }}
+      P_USERNAME: ${{ secrets.P_USERNAME }}
+      P_PASSWORD: ${{ secrets.P_PASSWORD }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up cargo
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Compile parseable binary
+        run: cargo build --release
+
+      - name: Set up AWS CLI
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Launch a ${{ env.INSTANCE_TYPE }} instance
+        run: |
+          INSTANCE_ID=$(aws ec2 run-instances \
+            --image-id ${{ env.AMI_ID }} \
+            --count 1 \
+            --instance-type ${{ env.INSTANCE_TYPE }} \
+            --security-group-ids ${{ secrets.SECURITY_GROUP }} \
+            --subnet-id ${{ secrets.SUBNET_ID }} \
+            --associate-public-ip-address \
+            --query 'Instances[0].InstanceId' \
+            --output text)
+          echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
+
+      - name: Wait for ${{ env.INSTANCE_TYPE }} instance to Start
+        run: |
+          aws ec2 wait instance-status-ok --instance-ids ${{ env.INSTANCE_ID }}
+          PUBLIC_IP=$(aws ec2 describe-instances \
+            --instance-ids ${{ env.INSTANCE_ID }} \
+            --query 'Reservations[0].Instances[0].PublicIpAddress' \
+            --output text)
+          echo "PUBLIC_IP=$PUBLIC_IP" >> $GITHUB_ENV
+
+      - name: Upload parseable binary to ${{ env.INSTANCE_TYPE }} instance
+        run: |
+          scp -o StrictHostKeyChecking=no -i ${{ secrets.SSH_PRIVATE_KEY }} \
+            target/release/parseable \
+            ubuntu@${{ env.PUBLIC_IP }}:/usr/bin/parseable
+
+      - name: Start parseable session on ${{ env.INSTANCE_TYPE }} instance
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ${{ secrets.SSH_PRIVATE_KEY }} ec2-user@${{ env.PUBLIC_IP }} << 'EOF'
+            chmod +x /usr/bin/parseable
+            nohup RUST_LOG=debug P_USERNAME=${{ secrets.P_USERNAME }} P_PASSWORD=${{ secrets.P_PASSWORD }} parseable s3-store&
+          EOF
+
+      - name: Parseable server readiness check
+        run: |
+          for i in {1..10}; do
+            if curl -s http://${{ env.PUBLIC_IP }}:8000/api/v1/readiness; then
+              echo "Service is ready!"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Service did not respond in time" >&2
+          exit 1
+
+      - name: Checkout quest repository
+        uses: actions/checkout@v3
+        with:
+          repository: parseablehq/quest
+          path: clickbench
+          sparse-checkout: clickbench
+
+      - name: Run Query Benchmarks
+        run: |
+          cd quest/clickbench
+          sh run_query.sh
+          echo "RESULT_FILE_PATH=$(realpath result.csv)" >> $GITHUB_ENV
+
+      - name: Upload Results for parseable without HotTier
+        uses: actions/upload-artifact@v4
+        with:
+          name: $GITHUB_SHA-normal.csv
+          path: ${{ env.RESULT_FILE_PATH }}
+
+      - name: Terminate EC2 Instance
+        run: |
+          aws ec2 terminate-instances --instance-ids ${{ env.INSTANCE_ID }}
+          aws ec2 wait instance-terminated --instance-ids ${{ env.INSTANCE_ID }}
