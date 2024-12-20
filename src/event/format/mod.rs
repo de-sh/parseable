@@ -233,6 +233,11 @@ pub fn update_field_type_in_schema(
         }
     }
 
+    updated_schema = Arc::new(detect_and_override_num_fields(
+        (*updated_schema).clone(),
+        existing_schema,
+    ));
+
     if time_partition.is_none() {
         return updated_schema;
     }
@@ -254,6 +259,33 @@ pub fn update_field_type_in_schema(
         })
         .collect();
     Arc::new(Schema::new(new_schema))
+}
+
+/// Modifies the schema such that any numeric fields not already defined in an optional
+/// 'existing_schema' are redefined as Float64, regardless of their original type.
+pub fn detect_and_override_num_fields(
+    schema: Schema,
+    existing_schema: Option<&HashMap<String, Arc<Field>>>,
+) -> Schema {
+    let updated_fields: Vec<Arc<Field>> = schema
+        .fields()
+        .iter()
+        .filter(|field| {
+            existing_schema.map_or(false, |s| s.contains_key(field.name()))
+                && field.data_type().is_numeric()
+        })
+        .map(|field| {
+            {
+                Arc::new(Field::new(
+                    field.name(),
+                    DataType::Float64,
+                    field.is_nullable(),
+                ))
+            }
+        })
+        .collect();
+
+    Schema::new(updated_fields)
 }
 
 pub fn update_data_type_to_datetime(
