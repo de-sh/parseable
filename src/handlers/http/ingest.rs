@@ -59,7 +59,7 @@ pub async fn ingest(req: HttpRequest, body: Bytes) -> Result<HttpResponse, PostE
                 stream_name
             )));
         }
-        create_stream_if_not_exists(&stream_name, &StreamType::UserDefined.to_string()).await?;
+        create_stream_if_not_exists(&stream_name, StreamType::UserDefined).await?;
 
         flatten_and_push_logs(req, body, &stream_name).await?;
         Ok(HttpResponse::Ok().finish())
@@ -115,7 +115,7 @@ pub async fn handle_otel_ingestion(
         .find(|&(key, _)| key == STREAM_NAME_HEADER_KEY)
     {
         let stream_name = stream_name.to_str().unwrap();
-        create_stream_if_not_exists(stream_name, &StreamType::UserDefined.to_string()).await?;
+        create_stream_if_not_exists(stream_name, StreamType::UserDefined).await?;
         push_logs(stream_name, &req, &body).await?;
     } else {
         return Err(PostError::Header(ParseHeaderError::MissingStreamName));
@@ -176,7 +176,7 @@ pub async fn push_logs_unchecked(
 // Check if the stream exists and create a new stream if doesn't exist
 pub async fn create_stream_if_not_exists(
     stream_name: &str,
-    stream_type: &str,
+    stream_type: StreamType,
 ) -> Result<bool, PostError> {
     let mut stream_exists = false;
     if STREAM_INFO.stream_exists(stream_name) {

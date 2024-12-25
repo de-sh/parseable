@@ -475,10 +475,10 @@ pub async fn create_stream(
     custom_partition: &str,
     static_schema_flag: &str,
     schema: Arc<Schema>,
-    stream_type: &str,
+    stream_type: StreamType,
 ) -> Result<(), CreateStreamError> {
     // fail to proceed if invalid stream name
-    if stream_type != StreamType::Internal.to_string() {
+    if stream_type != StreamType::Internal {
         validator::stream_name(&stream_name, stream_type)?;
     }
     // Proceed to create log stream if it doesn't exist
@@ -557,7 +557,7 @@ pub async fn get_stream_info(req: HttpRequest) -> Result<impl Responder, StreamE
         .ok_or(StreamError::StreamNotFound(stream_name.clone()))?;
 
     let stream_info: StreamInfo = StreamInfo {
-        stream_type: stream_meta.stream_type.clone(),
+        stream_type: stream_meta.stream_type,
         created_at: stream_meta.created_at.clone(),
         first_event_at: stream_meta.first_event_at.clone(),
         time_partition: stream_meta.time_partition.clone(),
@@ -591,7 +591,11 @@ pub async fn put_stream_hot_tier(
         }
     }
 
-    if STREAM_INFO.stream_type(&stream_name).unwrap() == Some(StreamType::Internal.to_string()) {
+    if STREAM_INFO
+        .stream_type(&stream_name)
+        .expect("Stream exists!")
+        == Some(StreamType::Internal)
+    {
         return Err(StreamError::Custom {
             msg: "Hot tier can not be updated for internal stream".to_string(),
             status: StatusCode::BAD_REQUEST,
@@ -690,7 +694,7 @@ pub async fn delete_stream_hot_tier(req: HttpRequest) -> Result<impl Responder, 
         return Err(StreamError::HotTierNotEnabled(stream_name));
     }
 
-    if STREAM_INFO.stream_type(&stream_name).unwrap() == Some(StreamType::Internal.to_string()) {
+    if STREAM_INFO.stream_type(&stream_name).unwrap() == Some(StreamType::Internal) {
         return Err(StreamError::Custom {
             msg: "Hot tier can not be deleted for internal stream".to_string(),
             status: StatusCode::BAD_REQUEST,
@@ -708,7 +712,7 @@ pub async fn delete_stream_hot_tier(req: HttpRequest) -> Result<impl Responder, 
 
 pub async fn create_internal_stream_if_not_exists() -> Result<(), StreamError> {
     if let Ok(stream_exists) =
-        create_stream_if_not_exists(INTERNAL_STREAM_NAME, &StreamType::Internal.to_string()).await
+        create_stream_if_not_exists(INTERNAL_STREAM_NAME, StreamType::Internal).await
     {
         if stream_exists {
             return Ok(());
@@ -716,7 +720,10 @@ pub async fn create_internal_stream_if_not_exists() -> Result<(), StreamError> {
         let mut header_map = HeaderMap::new();
         header_map.insert(
             HeaderName::from_str(STREAM_TYPE_KEY).unwrap(),
-            HeaderValue::from_str(&StreamType::Internal.to_string()).unwrap(),
+            HeaderValue::from_str(
+                &serde_json::to_string(&StreamType::Internal).expect("Serialized"),
+            )
+            .unwrap(),
         );
         header_map.insert(
             header::CONTENT_TYPE,

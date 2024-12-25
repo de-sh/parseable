@@ -112,7 +112,7 @@ pub async fn create_update_stream(
         &custom_partition,
         &static_schema_flag,
         schema,
-        &stream_type,
+        stream_type,
     )
     .await?;
 
@@ -167,13 +167,13 @@ async fn validate_and_update_custom_partition(
 
 pub fn fetch_headers_from_put_stream_request(
     req: &HttpRequest,
-) -> (String, String, String, String, String, String) {
+) -> (String, String, String, String, String, StreamType) {
     let mut time_partition = String::default();
     let mut time_partition_limit = String::default();
     let mut custom_partition = String::default();
     let mut static_schema_flag = String::default();
     let mut update_stream = String::default();
-    let mut stream_type = StreamType::UserDefined.to_string();
+    let mut stream_type = StreamType::default();
     req.headers().iter().for_each(|(key, value)| {
         if key == TIME_PARTITION_KEY {
             time_partition = value.to_str().unwrap().to_string();
@@ -191,7 +191,7 @@ pub fn fetch_headers_from_put_stream_request(
             update_stream = value.to_str().unwrap().to_string();
         }
         if key == STREAM_TYPE_KEY {
-            stream_type = value.to_str().unwrap().to_string();
+            stream_type = serde_json::from_str(value.to_str().unwrap()).unwrap_or_default();
         }
     });
 
@@ -385,10 +385,10 @@ pub async fn create_stream(
     custom_partition: &str,
     static_schema_flag: &str,
     schema: Arc<Schema>,
-    stream_type: &str,
+    stream_type: StreamType,
 ) -> Result<(), CreateStreamError> {
     // fail to proceed if invalid stream name
-    if stream_type != StreamType::Internal.to_string() {
+    if stream_type != StreamType::Internal {
         validator::stream_name(&stream_name, stream_type)?;
     }
     // Proceed to create log stream if it doesn't exist
@@ -474,7 +474,7 @@ pub async fn create_stream_and_schema_from_storage(stream_name: &str) -> Result<
             .unwrap_or("");
         let custom_partition = stream_metadata.custom_partition.as_deref().unwrap_or("");
         let static_schema_flag = stream_metadata.static_schema_flag.as_deref().unwrap_or("");
-        let stream_type = stream_metadata.stream_type.as_deref().unwrap_or("");
+        let stream_type = stream_metadata.stream_type.unwrap_or_default();
 
         metadata::STREAM_INFO.add_stream(
             stream_name.to_string(),

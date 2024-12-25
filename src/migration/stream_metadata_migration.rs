@@ -163,12 +163,12 @@ pub fn v4_v5(mut stream_metadata: Value, stream_name: &str) -> Value {
         if stream_name.eq(INTERNAL_STREAM_NAME) {
             stream_metadata_map.insert(
                 "stream_type".to_owned(),
-                Value::String(storage::StreamType::Internal.to_string()),
+                json!(storage::StreamType::Internal),
             );
         } else {
             stream_metadata_map.insert(
                 "stream_type".to_owned(),
-                Value::String(storage::StreamType::UserDefined.to_string()),
+                json!(storage::StreamType::UserDefined),
             );
         }
     }

@@ -57,7 +57,7 @@ pub struct LogStreamMetadata {
     pub custom_partition: Option<String>,
     pub static_schema_flag: Option<String>,
     pub hot_tier_enabled: Option<bool>,
-    pub stream_type: Option<String>,
+    pub stream_type: Option<StreamType>,
 }
 
 // It is very unlikely that panic will occur when dealing with metadata.
@@ -248,7 +248,7 @@ impl StreamInfo {
         custom_partition: String,
         static_schema_flag: String,
         static_schema: HashMap<String, Arc<Field>>,
-        stream_type: &str,
+        stream_type: StreamType,
     ) {
         let mut map = self.write().expect(LOCK_EXPECT);
         let metadata = LogStreamMetadata {
@@ -282,7 +282,7 @@ impl StreamInfo {
             } else {
                 static_schema
             },
-            stream_type: Some(stream_type.to_string()),
+            stream_type: Some(stream_type),
             ..Default::default()
         };
         map.insert(stream_name, metadata);
@@ -345,16 +345,16 @@ impl StreamInfo {
         self.read()
             .expect(LOCK_EXPECT)
             .iter()
-            .filter(|(_, v)| v.stream_type.clone().unwrap() == StreamType::Internal.to_string())
+            .filter(|(_, v)| v.stream_type.unwrap() == StreamType::Internal)
             .map(|(k, _)| k.clone())
             .collect()
     }
 
-    pub fn stream_type(&self, stream_name: &str) -> Result<Option<String>, MetadataError> {
+    pub fn stream_type(&self, stream_name: &str) -> Result<Option<StreamType>, MetadataError> {
         let map = self.read().expect(LOCK_EXPECT);
         map.get(stream_name)
             .ok_or(MetadataError::StreamMetaNotFound(stream_name.to_string()))
-            .map(|metadata| metadata.stream_type.clone())
+            .map(|metadata| metadata.stream_type)
     }
 
     pub fn update_stats(

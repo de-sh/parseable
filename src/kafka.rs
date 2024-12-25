@@ -215,7 +215,7 @@ async fn ingest_message(msg: BorrowedMessage<'_>) -> Result<(), KafkaError> {
     let stream_name = msg.topic();
 
     // stream should get created only if there is an incoming event, not before that
-    create_stream_if_not_exists(stream_name, &StreamType::UserDefined.to_string()).await?;
+    create_stream_if_not_exists(stream_name, StreamType::UserDefined).await?;
 
     let schema = resolve_schema(stream_name)?;
     let event = format::json::Event {

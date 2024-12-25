@@ -159,13 +159,12 @@ pub async fn get_stats(req: HttpRequest) -> Result<impl Responder, StreamError> 
     let stats = stats::get_current_stats(&stream_name, "json")
         .ok_or(StreamError::StreamNotFound(stream_name.clone()))?;
 
-    let ingestor_stats = if STREAM_INFO.stream_type(&stream_name).unwrap()
-        == Some(StreamType::UserDefined.to_string())
-    {
-        Some(fetch_stats_from_ingestors(&stream_name).await?)
-    } else {
-        None
-    };
+    let ingestor_stats =
+        if STREAM_INFO.stream_type(&stream_name).unwrap() == Some(StreamType::UserDefined) {
+            Some(fetch_stats_from_ingestors(&stream_name).await?)
+        } else {
+            None
+        };
 
     let hash_map = STREAM_INFO.read().expect("Readable");
     let stream_meta = &hash_map

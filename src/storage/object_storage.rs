@@ -21,8 +21,8 @@ use super::{
     ObjectStoreFormat, Permisssion, StorageDir, StorageMetadata,
 };
 use super::{
-    ALERT_FILE_NAME, MANIFEST_FILE, PARSEABLE_METADATA_FILE_NAME, PARSEABLE_ROOT_DIRECTORY,
-    SCHEMA_FILE_NAME, STREAM_METADATA_FILE_NAME, STREAM_ROOT_DIRECTORY,
+    StreamType, ALERT_FILE_NAME, MANIFEST_FILE, PARSEABLE_METADATA_FILE_NAME,
+    PARSEABLE_ROOT_DIRECTORY, SCHEMA_FILE_NAME, STREAM_METADATA_FILE_NAME, STREAM_ROOT_DIRECTORY,
 };
 
 use crate::handlers::http::modal::ingest_server::INGESTOR_META;
@@ -149,14 +149,14 @@ pub trait ObjectStorage: Send + Sync + 'static {
         custom_partition: &str,
         static_schema_flag: &str,
         schema: Arc<Schema>,
-        stream_type: &str,
+        stream_type: StreamType,
     ) -> Result<String, ObjectStorageError> {
         let mut format = ObjectStoreFormat::default();
         format.set_id(CONFIG.parseable.username.clone());
         let permission = Permisssion::new(CONFIG.parseable.username.clone());
         format.permissions = vec![permission];
         format.created_at = Local::now().to_rfc3339();
-        format.stream_type = Some(stream_type.to_string());
+        format.stream_type = Some(stream_type);
         if time_partition.is_empty() {
             format.time_partition = None;
         } else {
