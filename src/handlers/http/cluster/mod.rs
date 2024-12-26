@@ -49,8 +49,8 @@ type IngestorMetadataArr = Vec<IngestorMetadata>;
 
 use self::utils::StorageStats;
 
-use super::base_path_without_preceding_slash;
 use super::rbac::RBACError;
+use super::{API_BASE_PATH, API_VERSION};
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -84,10 +84,8 @@ pub async fn sync_streams_with_ingestors(
             continue;
         }
         let url = format!(
-            "{}{}/logstream/{}/sync",
+            "{}{API_BASE_PATH}/{API_VERSION}/logstream/{stream_name}/sync",
             ingestor.domain_name,
-            base_path_without_preceding_slash(),
-            stream_name
         );
         let res = client
             .put(url)
@@ -137,10 +135,8 @@ pub async fn sync_users_with_roles_with_ingestors(
             continue;
         }
         let url = format!(
-            "{}{}/user/{}/role/sync",
+            "{}{API_BASE_PATH}/{API_VERSION}/user/{username}/role/sync",
             ingestor.domain_name,
-            base_path_without_preceding_slash(),
-            username
         );
 
         let res = client
@@ -184,10 +180,8 @@ pub async fn sync_user_deletion_with_ingestors(username: &String) -> Result<(), 
             continue;
         }
         let url = format!(
-            "{}{}/user/{}/sync",
+            "{}{API_BASE_PATH}/{API_VERSION}/user/{username}/sync",
             ingestor.domain_name,
-            base_path_without_preceding_slash(),
-            username
         );
 
         let res = client
@@ -244,10 +238,8 @@ pub async fn sync_user_creation_with_ingestors(
             continue;
         }
         let url = format!(
-            "{}{}/user/{}/sync",
+            "{}{API_BASE_PATH}/{API_VERSION}/user/{username}/sync",
             ingestor.domain_name,
-            base_path_without_preceding_slash(),
-            username
         );
 
         let res = client
@@ -291,10 +283,8 @@ pub async fn sync_password_reset_with_ingestors(username: &String) -> Result<(),
             continue;
         }
         let url = format!(
-            "{}{}/user/{}/generate-new-password/sync",
+            "{}{API_BASE_PATH}/{API_VERSION}/user/{username}/generate-new-password/sync",
             ingestor.domain_name,
-            base_path_without_preceding_slash(),
-            username
         );
 
         let res = client
@@ -346,10 +336,8 @@ pub async fn sync_role_update_with_ingestors(
             continue;
         }
         let url = format!(
-            "{}{}/role/{}/sync",
-            ingestor.domain_name,
-            base_path_without_preceding_slash(),
-            name
+            "{}{API_BASE_PATH}/{API_VERSION}/role/{name}/sync",
+            ingestor.domain_name
         );
 
         let res = client
@@ -393,9 +381,8 @@ pub async fn fetch_daily_stats_from_ingestors(
     })?;
     for ingestor in ingestor_infos.iter() {
         let uri = Url::parse(&format!(
-            "{}{}/metrics",
-            &ingestor.domain_name,
-            base_path_without_preceding_slash()
+            "{}{API_BASE_PATH}/{API_VERSION}/metrics",
+            ingestor.domain_name,
         ))
         .map_err(|err| {
             StreamError::Anyhow(anyhow::anyhow!("Invalid URL in Ingestor Metadata: {}", err))
@@ -597,9 +584,8 @@ pub async fn get_cluster_info() -> Result<impl Responder, StreamError> {
 
     for ingestor in ingestor_infos {
         let uri = Url::parse(&format!(
-            "{}{}/about",
+            "{}{API_BASE_PATH}/{API_VERSION}/about",
             ingestor.domain_name,
-            base_path_without_preceding_slash()
         ))
         .expect("should always be a valid url");
 
@@ -744,9 +730,8 @@ async fn fetch_cluster_metrics() -> Result<Vec<Metrics>, PostError> {
 
     for ingestor in ingestor_metadata {
         let uri = Url::parse(&format!(
-            "{}{}/metrics",
-            &ingestor.domain_name,
-            base_path_without_preceding_slash()
+            "{}{API_BASE_PATH}/{API_VERSION}/metrics",
+            ingestor.domain_name,
         ))
         .map_err(|err| {
             PostError::Invalid(anyhow::anyhow!("Invalid URL in Ingestor Metadata: {}", err))

@@ -20,7 +20,7 @@ use std::{io::ErrorKind, sync::Arc};
 
 use self::{column::Column, snapshot::ManifestItem};
 use crate::handlers;
-use crate::handlers::http::base_path_without_preceding_slash;
+use crate::handlers::http::{API_BASE_PATH, API_VERSION};
 use crate::metadata::STREAM_INFO;
 use crate::metrics::{EVENTS_INGESTED_DATE, EVENTS_INGESTED_SIZE_DATE, EVENTS_STORAGE_SIZE_DATE};
 use crate::option::{Mode, CONFIG};
@@ -407,10 +407,8 @@ pub async fn get_first_event(
             let mut ingestors_first_event_at: Vec<String> = Vec::new();
             for ingestor in ingestor_metadata {
                 let url = format!(
-                    "{}{}/logstream/{}/retention/cleanup",
+                    "{}{API_BASE_PATH}/{API_VERSION}/logstream/{stream_name}/retention/cleanup",
                     ingestor.domain_name,
-                    base_path_without_preceding_slash(),
-                    stream_name
                 );
                 // Convert dates vector to Bytes object
                 let dates_bytes = Bytes::from(serde_json::to_vec(&dates).unwrap());

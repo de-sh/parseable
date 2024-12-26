@@ -62,10 +62,6 @@ pub(crate) fn cross_origin_config() -> Cors {
     }
 }
 
-pub fn base_path_without_preceding_slash() -> String {
-    format!("{API_BASE_PATH}/{API_VERSION}")
-}
-
 /// Fetches the schema for the specified stream.
 ///
 /// # Arguments
@@ -102,12 +98,7 @@ pub async fn send_query_request_to_ingestor(query: &Query) -> anyhow::Result<Vec
     let ima = get_ingestor_info().await?;
 
     for im in ima.iter() {
-        let uri = format!(
-            "{}{}/{}",
-            im.domain_name,
-            base_path_without_preceding_slash(),
-            "query"
-        );
+        let uri = format!("{}{API_BASE_PATH}/{API_VERSION}/query", im.domain_name);
         let reqw = reqwest::Client::new()
             .post(uri)
             .json(query)

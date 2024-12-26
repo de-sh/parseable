@@ -31,7 +31,6 @@ static CREATE_STREAM_LOCK: Mutex<()> = Mutex::const_new(());
 use crate::{
     event,
     handlers::http::{
-        base_path_without_preceding_slash,
         cluster::{
             self, fetch_daily_stats_from_ingestors, fetch_stats_from_ingestors,
             sync_streams_with_ingestors,
@@ -41,6 +40,7 @@ use crate::{
         modal::utils::logstream_utils::{
             create_stream_and_schema_from_storage, create_update_stream,
         },
+        API_BASE_PATH, API_VERSION,
     },
     hottier::HotTierManager,
     metadata::{self, STREAM_INFO},
@@ -88,10 +88,8 @@ pub async fn delete(req: HttpRequest) -> Result<impl Responder, StreamError> {
 
     for ingestor in ingestor_metadata {
         let url = format!(
-            "{}{}/logstream/{}/sync",
+            "{}{API_BASE_PATH}/{API_VERSION}/logstream/{stream_name}/sync",
             ingestor.domain_name,
-            base_path_without_preceding_slash(),
-            stream_name
         );
 
         // delete the stream

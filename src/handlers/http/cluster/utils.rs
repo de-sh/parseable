@@ -17,7 +17,7 @@
  */
 
 use crate::handlers::http::{
-    base_path_without_preceding_slash, logstream::error::StreamError, modal::IngestorMetadata,
+    logstream::error::StreamError, modal::IngestorMetadata, API_BASE_PATH, API_VERSION,
 };
 use actix_web::http::header;
 use chrono::{DateTime, Utc};
@@ -224,9 +224,7 @@ pub fn merge_quried_stats(stats: Vec<QueriedStats>) -> QueriedStats {
 
 pub async fn check_liveness(domain_name: &str) -> bool {
     let uri = match Url::parse(&format!(
-        "{}{}/liveness",
-        domain_name,
-        base_path_without_preceding_slash()
+        "{domain_name}{API_BASE_PATH}/{API_VERSION}/liveness",
     )) {
         Ok(uri) => uri,
         Err(err) => {

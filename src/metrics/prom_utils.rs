@@ -16,9 +16,10 @@
  *
  */
 
-use crate::handlers::http::base_path_without_preceding_slash;
 use crate::handlers::http::ingest::PostError;
 use crate::handlers::http::modal::IngestorMetadata;
+use crate::handlers::http::API_BASE_PATH;
+use crate::handlers::http::API_VERSION;
 use crate::utils::get_url;
 use actix_web::http::header;
 use chrono::NaiveDateTime;
@@ -224,9 +225,8 @@ impl Metrics {
         ingestor_metadata: IngestorMetadata,
     ) -> Result<(String, String, String), PostError> {
         let uri = Url::parse(&format!(
-            "{}{}/about",
-            &ingestor_metadata.domain_name,
-            base_path_without_preceding_slash()
+            "{}{API_BASE_PATH}/{API_VERSION}/about",
+            ingestor_metadata.domain_name,
         ))
         .map_err(|err| {
             PostError::Invalid(anyhow::anyhow!("Invalid URL in Ingestor Metadata: {}", err))
