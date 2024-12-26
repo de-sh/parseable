@@ -109,17 +109,18 @@ pub async fn handle_otel_ingestion(
     req: HttpRequest,
     body: Bytes,
 ) -> Result<HttpResponse, PostError> {
-    if let Some((_, stream_name)) = req
+    let Some((_, stream_name)) = req
         .headers()
         .iter()
         .find(|&(key, _)| key == STREAM_NAME_HEADER_KEY)
-    {
-        let stream_name = stream_name.to_str().unwrap();
-        create_stream_if_not_exists(stream_name, StreamType::UserDefined).await?;
-        push_logs(stream_name, &req, &body).await?;
-    } else {
+    else {
         return Err(PostError::Header(ParseHeaderError::MissingStreamName));
-    }
+    };
+
+    let stream_name = stream_name.to_str().unwrap();
+    create_stream_if_not_exists(stream_name, StreamType::UserDefined).await?;
+    push_logs(stream_name, &req, &body).await?;
+
     Ok(HttpResponse::Ok().finish())
 }
 
