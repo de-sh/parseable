@@ -22,6 +22,7 @@ use actix_web::HttpRequest;
 use arrow_schema::Field;
 use bytes::Bytes;
 use chrono::{DateTime, NaiveDateTime, Utc};
+use itertools::Itertools;
 use serde_json::Value;
 
 use crate::{
@@ -70,95 +71,35 @@ pub async fn push_logs(
     let static_schema_flag = STREAM_INFO.get_static_schema_flag(stream_name)?;
     let custom_partition = STREAM_INFO.get_custom_partition(stream_name)?;
     let body_val: Value = serde_json::from_slice(body)?;
-    let size: usize = body.len();
-    let mut parsed_timestamp = Utc::now().naive_utc();
-    if time_partition.is_none() {
-        if custom_partition.is_none() {
-            let size = size as u64;
-            create_process_record_batch(
-                stream_name,
-                req,
-                body_val,
-                static_schema_flag.as_ref(),
-                None,
-                parsed_timestamp,
-                &HashMap::new(),
-                size,
-            )
-            .await?;
-        } else {
-            let data = convert_array_to_object(&body_val, None, None, custom_partition.as_ref())?;
-            let custom_partition = custom_partition.unwrap();
-            let custom_partition_list = custom_partition.split(',').collect::<Vec<&str>>();
+    let data = convert_array_to_object(
+        &body_val,
+        time_partition.as_ref(),
+        time_partition_limit.as_ref(),
+        custom_partition.as_ref(),
+    )?;
 
-            for value in data {
-                let custom_partition_values =
-                    get_custom_partition_values(&value, &custom_partition_list);
-
-                let size = value.to_string().into_bytes().len() as u64;
-                create_process_record_batch(
-                    stream_name,
-                    req,
-                    value,
-                    static_schema_flag.as_ref(),
-                    None,
-                    parsed_timestamp,
-                    &custom_partition_values,
-                    size,
-                )
-                .await?;
+    for value in data {
+        let size = value.to_string().into_bytes().len();
+        let parsed_timestamp = get_parsed_timestamp(&value, time_partition.as_ref());
+        let partition_values = match custom_partition.as_ref() {
+            Some(custom_partition) => {
+                let custom_partitions = custom_partition.split(',').collect_vec();
+                get_custom_partition_values(&value, &custom_partitions)
             }
-        }
-    } else if custom_partition.is_none() {
-        let data = convert_array_to_object(
-            &body_val,
-            time_partition.as_ref(),
-            time_partition_limit.as_ref(),
-            None,
-        )?;
-        for value in data {
-            parsed_timestamp = get_parsed_timestamp(&value, time_partition.as_ref());
-            let size = value.to_string().into_bytes().len() as u64;
-            create_process_record_batch(
-                stream_name,
-                req,
-                value,
-                static_schema_flag.as_ref(),
-                time_partition.as_ref(),
-                parsed_timestamp,
-                &HashMap::new(),
-                size,
-            )
-            .await?;
-        }
-    } else {
-        let data = convert_array_to_object(
-            &body_val,
-            time_partition.as_ref(),
-            time_partition_limit.as_ref(),
-            custom_partition.as_ref(),
-        )?;
-        let custom_partition = custom_partition.unwrap();
-        let custom_partition_list = custom_partition.split(',').collect::<Vec<&str>>();
+            None => HashMap::new(),
+        };
 
-        for value in data {
-            let custom_partition_values =
-                get_custom_partition_values(&value, &custom_partition_list);
-
-            parsed_timestamp = get_parsed_timestamp(&value, time_partition.as_ref());
-            let size = value.to_string().into_bytes().len() as u64;
-            create_process_record_batch(
-                stream_name,
-                req,
-                value,
-                static_schema_flag.as_ref(),
-                time_partition.as_ref(),
-                parsed_timestamp,
-                &custom_partition_values,
-                size,
-            )
-            .await?;
-        }
+        create_process_record_batch(
+            stream_name,
+            req,
+            value,
+            static_schema_flag.as_ref(),
+            time_partition.as_ref(),
+            parsed_timestamp,
+            &partition_values,
+            size as u64,
+        )
+        .await?;
     }
 
     Ok(())
