@@ -117,7 +117,7 @@ pub async fn create_process_record_batch(
     origin_size: u64,
 ) -> Result<(), PostError> {
     let (rb, is_first_event) =
-        get_stream_schema(stream_name, req, &value, static_schema_flag, time_partition)?;
+        get_stream_schema(stream_name, req, value, static_schema_flag, time_partition)?;
     event::Event {
         rb,
         stream_name: stream_name.to_owned(),
@@ -138,7 +138,7 @@ pub async fn create_process_record_batch(
 pub fn get_stream_schema(
     stream_name: &str,
     req: &HttpRequest,
-    body: &Value,
+    body: Value,
     static_schema_flag: Option<&String>,
     time_partition: Option<&String>,
 ) -> Result<(arrow_array::RecordBatch, bool), PostError> {
@@ -153,7 +153,7 @@ pub fn get_stream_schema(
 
 pub fn into_event_batch(
     req: &HttpRequest,
-    body: &Value,
+    data: Value,
     schema: HashMap<String, Arc<Field>>,
     static_schema_flag: Option<&String>,
     time_partition: Option<&String>,
@@ -161,7 +161,7 @@ pub fn into_event_batch(
     let tags = collect_labelled_headers(req, PREFIX_TAGS, SEPARATOR)?;
     let metadata = collect_labelled_headers(req, PREFIX_META, SEPARATOR)?;
     let event = format::json::Event {
-        data: body.to_owned(),
+        data,
         tags,
         metadata,
     };
