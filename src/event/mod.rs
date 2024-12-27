@@ -22,14 +22,21 @@ mod writer;
 
 use arrow_array::RecordBatch;
 use arrow_schema::{Field, Fields, Schema};
+use bytes::Bytes;
+use format::EventFormat;
 use itertools::Itertools;
+use serde_json::Value;
 use std::sync::Arc;
 use tracing::error;
 
 use self::error::EventError;
 pub use self::writer::STREAM_WRITERS;
-use crate::{handlers::http::ingest::PostError, metadata, storage::StreamType};
-use chrono::NaiveDateTime;
+use crate::{
+    handlers::http::ingest::PostError,
+    metadata::{self, STREAM_INFO},
+    storage::StreamType,
+};
+use chrono::{NaiveDateTime, Utc};
 use std::collections::HashMap;
 
 pub const DEFAULT_TIMESTAMP_KEY: &str = "p_timestamp";
@@ -51,6 +58,37 @@ pub struct Event {
 
 // Events holds the schema related to a each event for a single log stream
 impl Event {
+    pub fn from_json(stream_name: String, body: Bytes) -> Result<Self, EventError> {
+        let size: usize = body.len();
+        let parsed_timestamp = Utc::now().naive_utc();
+        let (rb, is_first) = {
+            let body_val: Value = serde_json::from_slice(&body)?;
+            let hash_map = STREAM_INFO.read().unwrap();
+            let schema = hash_map
+                .get(&stream_name)
+                .ok_or(EventError::StreamNotFound(stream_name.clone()))?
+                .schema
+                .clone();
+            let event = format::json::Event {
+                data: body_val,
+                tags: String::default(),
+                metadata: String::default(),
+            };
+            event.into_recordbatch(&schema, None, None)?
+        };
+
+        Ok(Event {
+            rb,
+            stream_name,
+            origin_format: "json",
+            origin_size: size as u64,
+            is_first_event: is_first,
+            parsed_timestamp,
+            time_partition: None,
+            custom_partition_values: HashMap::new(),
+            stream_type: StreamType::Internal,
+        })
+    }
     pub async fn process(&self) -> Result<(), EventError> {
         let mut key = get_schema_key(&self.rb.schema().fields);
         if self.time_partition.is_some() {
@@ -176,11 +214,17 @@ pub mod error {
     pub enum EventError {
         #[error("Stream Writer Failed: {0}")]
         StreamWriter(#[from] StreamWriterError),
+        #[error("Stream {0} not found")]
+        StreamNotFound(String),
+        #[error("Could not deserialize into JSON object, {0}")]
+        SerdeError(#[from] serde_json::Error),
         #[error("Metadata Error: {0}")]
         Metadata(#[from] MetadataError),
         #[error("Stream Writer Failed: {0}")]
         Arrow(#[from] ArrowError),
         #[error("ObjectStorage Error: {0}")]
         ObjectStorage(#[from] ObjectStorageError),
+        #[error("Invalid Request: {0}")]
+        Invalid(#[from] anyhow::Error),
     }
 }

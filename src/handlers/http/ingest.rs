@@ -20,11 +20,7 @@ use super::logstream::error::{CreateStreamError, StreamError};
 use super::modal::utils::ingest_utils::{flatten_and_push_logs, push_logs};
 use super::users::dashboards::DashboardError;
 use super::users::filters::FiltersError;
-use crate::event::{
-    self,
-    error::EventError,
-    format::{self, EventFormat},
-};
+use crate::event::{self, error::EventError};
 use crate::handlers::http::modal::utils::logstream_utils::create_stream_and_schema_from_storage;
 use crate::handlers::STREAM_NAME_HEADER_KEY;
 use crate::metadata::error::stream_info::MetadataError;
@@ -38,7 +34,6 @@ use arrow_schema::Schema;
 use bytes::Bytes;
 use chrono::Utc;
 use http::StatusCode;
-use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -69,36 +64,9 @@ pub async fn ingest(req: HttpRequest, body: Bytes) -> Result<HttpResponse, PostE
 }
 
 pub async fn ingest_internal_stream(stream_name: String, body: Bytes) -> Result<(), PostError> {
-    let size: usize = body.len();
-    let parsed_timestamp = Utc::now().naive_utc();
-    let (rb, is_first) = {
-        let body_val: Value = serde_json::from_slice(&body)?;
-        let hash_map = STREAM_INFO.read().unwrap();
-        let schema = hash_map
-            .get(&stream_name)
-            .ok_or(PostError::StreamNotFound(stream_name.clone()))?
-            .schema
-            .clone();
-        let event = format::json::Event {
-            data: body_val,
-            tags: String::default(),
-            metadata: String::default(),
-        };
-        event.into_recordbatch(&schema, None, None)?
-    };
-    event::Event {
-        rb,
-        stream_name,
-        origin_format: "json",
-        origin_size: size as u64,
-        is_first_event: is_first,
-        parsed_timestamp,
-        time_partition: None,
-        custom_partition_values: HashMap::new(),
-        stream_type: StreamType::Internal,
-    }
-    .process()
-    .await?;
+    event::Event::from_json(stream_name, body)?
+        .process()
+        .await?;
     Ok(())
 }
 
