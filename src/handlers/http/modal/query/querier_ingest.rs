@@ -17,14 +17,13 @@
  */
 
 use crate::handlers::http::ingest::PostError;
-use actix_web::{HttpRequest, HttpResponse};
-use bytes::Bytes;
+use actix_web::HttpResponse;
 
 // Handler for POST /api/v1/logstream/{logstream}
 // only ingests events into the specified logstream
 // fails if the logstream does not exist
 #[allow(unused)]
-pub async fn post_event(req: HttpRequest, body: Bytes) -> Result<HttpResponse, PostError> {
+pub async fn post_event() -> Result<HttpResponse, PostError> {
     Err(PostError::Invalid(anyhow::anyhow!(
         "Ingestion is not allowed in Query mode"
     )))

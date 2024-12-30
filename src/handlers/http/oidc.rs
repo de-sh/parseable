@@ -64,7 +64,7 @@ pub async fn login(
     req: HttpRequest,
     query: web::Query<RedirectAfterLogin>,
 ) -> Result<HttpResponse, OIDCError> {
-    let conn = req.connection_info().clone();
+    let conn = req.connection_info();
     let base_url_without_scheme = format!("{}/", conn.host());
 
     if !is_valid_redirect_url(&base_url_without_scheme, query.redirect.as_str()) {

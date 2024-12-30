@@ -18,7 +18,7 @@
 
 use std::{collections::HashMap, num::NonZeroU32, sync::Arc};
 
-use actix_web::{http::header::HeaderMap, HttpRequest};
+use actix_web::http::header::HeaderMap;
 use arrow_schema::{Field, Schema};
 use bytes::Bytes;
 use http::StatusCode;
@@ -37,10 +37,10 @@ use crate::{
 };
 
 pub async fn create_update_stream(
-    req: &HttpRequest,
-    body: &Bytes,
     stream_name: &str,
-) -> Result<HeaderMap, StreamError> {
+    headers: &HeaderMap,
+    body: &Bytes,
+) -> Result<(), StreamError> {
     let (
         time_partition,
         time_partition_limit,
@@ -48,7 +48,7 @@ pub async fn create_update_stream(
         static_schema_flag,
         update_stream_flag,
         stream_type,
-    ) = fetch_headers_from_put_stream_request(req);
+    ) = fetch_headers_from_put_stream_request(headers);
 
     if metadata::STREAM_INFO.stream_exists(stream_name) && update_stream_flag != "true" {
         return Err(StreamError::Custom {
@@ -73,7 +73,6 @@ pub async fn create_update_stream(
 
     if update_stream_flag == "true" {
         return update_stream(
-            req,
             stream_name,
             &time_partition,
             &static_schema_flag,
@@ -116,17 +115,16 @@ pub async fn create_update_stream(
     )
     .await?;
 
-    Ok(req.headers().clone())
+    Ok(())
 }
 
 async fn update_stream(
-    req: &HttpRequest,
     stream_name: &str,
     time_partition: &str,
     static_schema_flag: &str,
     time_partition_limit: &str,
     custom_partition: &str,
-) -> Result<HeaderMap, StreamError> {
+) -> Result<(), StreamError> {
     if !STREAM_INFO.stream_exists(stream_name) {
         return Err(StreamError::StreamNotFound(stream_name.to_string()));
     }
@@ -145,11 +143,11 @@ async fn update_stream(
     if !time_partition_limit.is_empty() {
         let time_partition_days = validate_time_partition_limit(time_partition_limit)?;
         update_time_partition_limit_in_stream(stream_name.to_string(), time_partition_days).await?;
-        return Ok(req.headers().clone());
+        return Ok(());
     }
     validate_and_update_custom_partition(stream_name, custom_partition).await?;
 
-    Ok(req.headers().clone())
+    Ok(())
 }
 
 async fn validate_and_update_custom_partition(
@@ -166,7 +164,7 @@ async fn validate_and_update_custom_partition(
 }
 
 pub fn fetch_headers_from_put_stream_request(
-    req: &HttpRequest,
+    headers: &HeaderMap,
 ) -> (String, String, String, String, String, StreamType) {
     let mut time_partition = String::default();
     let mut time_partition_limit = String::default();
@@ -174,7 +172,7 @@ pub fn fetch_headers_from_put_stream_request(
     let mut static_schema_flag = String::default();
     let mut update_stream = String::default();
     let mut stream_type = StreamType::default();
-    req.headers().iter().for_each(|(key, value)| {
+    headers.iter().for_each(|(key, value)| {
         if key == TIME_PARTITION_KEY {
             time_partition = value.to_str().unwrap().to_string();
         }

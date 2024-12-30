@@ -33,11 +33,12 @@ use crate::stats::Stats;
 use crate::storage::object_storage::ingestor_metadata_path;
 use crate::storage::{ObjectStorageError, STREAM_ROOT_DIRECTORY};
 use crate::storage::{ObjectStoreFormat, PARSEABLE_ROOT_DIRECTORY};
-use actix_web::http::header::{self, HeaderMap};
-use actix_web::{HttpRequest, Responder};
+use actix_web::web::Path;
+use actix_web::Responder;
 use bytes::Bytes;
 use chrono::Utc;
-use http::{header as http_header, StatusCode};
+use http::header::{AUTHORIZATION, CONTENT_TYPE};
+use http::{HeaderMap, StatusCode};
 use itertools::Itertools;
 use relative_path::RelativePathBuf;
 use serde::de::Error;
@@ -66,11 +67,6 @@ pub async fn sync_streams_with_ingestors(
     body: Bytes,
     stream_name: &str,
 ) -> Result<(), StreamError> {
-    let mut reqwest_headers = http_header::HeaderMap::new();
-
-    for (key, value) in headers.iter() {
-        reqwest_headers.insert(key.clone(), value.clone());
-    }
     let ingestor_infos = get_ingestor_info().await.map_err(|err| {
         error!("Fatal: failed to get ingestor info: {:?}", err);
         StreamError::Anyhow(err)
@@ -89,8 +85,8 @@ pub async fn sync_streams_with_ingestors(
         );
         let res = client
             .put(url)
-            .headers(reqwest_headers.clone())
-            .header(header::AUTHORIZATION, &ingestor.token)
+            .headers(headers.clone())
+            .header(AUTHORIZATION, &ingestor.token)
             .body(body.clone())
             .send()
             .await
@@ -141,8 +137,8 @@ pub async fn sync_users_with_roles_with_ingestors(
 
         let res = client
             .put(url)
-            .header(header::AUTHORIZATION, &ingestor.token)
-            .header(header::CONTENT_TYPE, "application/json")
+            .header(AUTHORIZATION, &ingestor.token)
+            .header(CONTENT_TYPE, "application/json")
             .body(role.clone())
             .send()
             .await
@@ -186,7 +182,7 @@ pub async fn sync_user_deletion_with_ingestors(username: &String) -> Result<(), 
 
         let res = client
             .delete(url)
-            .header(header::AUTHORIZATION, &ingestor.token)
+            .header(AUTHORIZATION, &ingestor.token)
             .send()
             .await
             .map_err(|err| {
@@ -244,8 +240,8 @@ pub async fn sync_user_creation_with_ingestors(
 
         let res = client
             .post(url)
-            .header(header::AUTHORIZATION, &ingestor.token)
-            .header(header::CONTENT_TYPE, "application/json")
+            .header(AUTHORIZATION, &ingestor.token)
+            .header(CONTENT_TYPE, "application/json")
             .body(user.clone())
             .send()
             .await
@@ -289,8 +285,8 @@ pub async fn sync_password_reset_with_ingestors(username: &String) -> Result<(),
 
         let res = client
             .post(url)
-            .header(header::AUTHORIZATION, &ingestor.token)
-            .header(header::CONTENT_TYPE, "application/json")
+            .header(AUTHORIZATION, &ingestor.token)
+            .header(CONTENT_TYPE, "application/json")
             .send()
             .await
             .map_err(|err| {
@@ -342,8 +338,8 @@ pub async fn sync_role_update_with_ingestors(
 
         let res = client
             .put(url)
-            .header(header::AUTHORIZATION, &ingestor.token)
-            .header(header::CONTENT_TYPE, "application/json")
+            .header(AUTHORIZATION, &ingestor.token)
+            .header(CONTENT_TYPE, "application/json")
             .body(roles.clone())
             .send()
             .await
@@ -390,8 +386,8 @@ pub async fn fetch_daily_stats_from_ingestors(
 
         let res = reqwest::Client::new()
             .get(uri)
-            .header(header::AUTHORIZATION, &ingestor.token)
-            .header(header::CONTENT_TYPE, "application/json")
+            .header(AUTHORIZATION, &ingestor.token)
+            .header(CONTENT_TYPE, "application/json")
             .send()
             .await;
 
@@ -502,8 +498,8 @@ pub async fn send_stream_delete_request(
     let client = reqwest::Client::new();
     let resp = client
         .delete(url)
-        .header(header::CONTENT_TYPE, "application/json")
-        .header(header::AUTHORIZATION, ingestor.token)
+        .header(CONTENT_TYPE, "application/json")
+        .header(AUTHORIZATION, ingestor.token)
         .send()
         .await
         .map_err(|err| {
@@ -541,8 +537,8 @@ pub async fn send_retention_cleanup_request(
     let client = reqwest::Client::new();
     let resp = client
         .post(url)
-        .header(header::CONTENT_TYPE, "application/json")
-        .header(header::AUTHORIZATION, ingestor.token)
+        .header(CONTENT_TYPE, "application/json")
+        .header(AUTHORIZATION, ingestor.token)
         .body(body)
         .send()
         .await
@@ -591,8 +587,8 @@ pub async fn get_cluster_info() -> Result<impl Responder, StreamError> {
 
         let resp = reqwest::Client::new()
             .get(uri)
-            .header(header::AUTHORIZATION, ingestor.token.clone())
-            .header(header::CONTENT_TYPE, "application/json")
+            .header(AUTHORIZATION, ingestor.token.clone())
+            .header(CONTENT_TYPE, "application/json")
             .send()
             .await;
 
@@ -670,8 +666,8 @@ pub async fn get_ingestor_info() -> anyhow::Result<IngestorMetadataArr> {
     Ok(arr)
 }
 
-pub async fn remove_ingestor(req: HttpRequest) -> Result<impl Responder, PostError> {
-    let domain_name: String = req.match_info().get("ingestor").unwrap().parse().unwrap();
+pub async fn remove_ingestor(domain_name: Path<String>) -> Result<impl Responder, PostError> {
+    let domain_name = domain_name.into_inner();
     let domain_name = to_url_string(domain_name);
 
     if check_liveness(&domain_name).await {
@@ -739,8 +735,8 @@ async fn fetch_cluster_metrics() -> Result<Vec<Metrics>, PostError> {
 
         let res = reqwest::Client::new()
             .get(uri)
-            .header(header::AUTHORIZATION, &ingestor.token)
-            .header(header::CONTENT_TYPE, "application/json")
+            .header(AUTHORIZATION, &ingestor.token)
+            .header(CONTENT_TYPE, "application/json")
             .send()
             .await;
 

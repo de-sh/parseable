@@ -28,6 +28,7 @@ use crate::metadata::STREAM_INFO;
 use crate::option::{Mode, CONFIG};
 use crate::storage::{ObjectStorageError, StreamType};
 use crate::utils::header_parsing::ParseHeaderError;
+use actix_web::web::Path;
 use actix_web::{http::header::ContentType, HttpRequest, HttpResponse};
 use arrow_array::RecordBatch;
 use arrow_schema::Schema;
@@ -56,7 +57,7 @@ pub async fn ingest(req: HttpRequest, body: Bytes) -> Result<HttpResponse, PostE
         }
         create_stream_if_not_exists(&stream_name, StreamType::UserDefined).await?;
 
-        flatten_and_push_logs(req, body, &stream_name).await?;
+        flatten_and_push_logs(req.headers(), body, &stream_name).await?;
         Ok(HttpResponse::Ok().finish())
     } else {
         Err(PostError::Header(ParseHeaderError::MissingStreamName))
@@ -87,7 +88,7 @@ pub async fn handle_otel_ingestion(
 
     let stream_name = stream_name.to_str().unwrap();
     create_stream_if_not_exists(stream_name, StreamType::UserDefined).await?;
-    push_logs(stream_name, &req, &body).await?;
+    push_logs(stream_name, req.headers(), &body).await?;
 
     Ok(HttpResponse::Ok().finish())
 }
@@ -95,8 +96,12 @@ pub async fn handle_otel_ingestion(
 // Handler for POST /api/v1/logstream/{logstream}
 // only ingests events into the specified logstream
 // fails if the logstream does not exist
-pub async fn post_event(req: HttpRequest, body: Bytes) -> Result<HttpResponse, PostError> {
-    let stream_name: String = req.match_info().get("logstream").unwrap().parse().unwrap();
+pub async fn post_event(
+    req: HttpRequest,
+    stream_name: Path<String>,
+    body: Bytes,
+) -> Result<HttpResponse, PostError> {
+    let stream_name = stream_name.into_inner();
     let internal_stream_names = STREAM_INFO.list_internal_streams();
     if internal_stream_names.contains(&stream_name) {
         return Err(PostError::Invalid(anyhow::anyhow!(
@@ -118,7 +123,7 @@ pub async fn post_event(req: HttpRequest, body: Bytes) -> Result<HttpResponse, P
         }
     }
 
-    flatten_and_push_logs(req, body, &stream_name).await?;
+    flatten_and_push_logs(req.headers(), body, &stream_name).await?;
     Ok(HttpResponse::Ok().finish())
 }
 
@@ -239,11 +244,12 @@ impl actix_web::ResponseError for PostError {
 #[cfg(test)]
 mod tests {
 
-    use std::{collections::HashMap, sync::Arc};
+    use std::{collections::HashMap, str::FromStr, sync::Arc};
 
-    use actix_web::test::TestRequest;
+    use actix_web::http::header::HeaderMap;
     use arrow_array::{ArrayRef, Float64Array, Int64Array, StringArray};
     use arrow_schema::{DataType, Field};
+    use http::{HeaderName, HeaderValue};
     use serde_json::json;
 
     use crate::{
@@ -283,12 +289,17 @@ mod tests {
             "b": "hello",
         });
 
-        let req = TestRequest::default()
-            .append_header((PREFIX_TAGS.to_string() + "A", "tag1"))
-            .append_header((PREFIX_META.to_string() + "C", "meta1"))
-            .to_http_request();
+        let mut headers = HeaderMap::default();
+        headers.insert(
+            HeaderName::from_str(&format!("{PREFIX_TAGS}A")).unwrap(),
+            HeaderValue::from_static("tag1"),
+        );
+        headers.insert(
+            HeaderName::from_str(&format!("{PREFIX_META}C")).unwrap(),
+            HeaderValue::from_static("meta1"),
+        );
 
-        let (rb, _) = into_event_batch(&req, json, HashMap::default(), None, None).unwrap();
+        let (rb, _) = into_event_batch(&headers, json, HashMap::default(), None, None).unwrap();
 
         assert_eq!(rb.num_rows(), 1);
         assert_eq!(rb.num_columns(), 6);
@@ -326,9 +337,9 @@ mod tests {
             "c": null
         });
 
-        let req = TestRequest::default().to_http_request();
+        let headers = HeaderMap::default();
 
-        let (rb, _) = into_event_batch(&req, json, HashMap::default(), None, None).unwrap();
+        let (rb, _) = into_event_batch(&headers, json, HashMap::default(), None, None).unwrap();
 
         assert_eq!(rb.num_rows(), 1);
         assert_eq!(rb.num_columns(), 5);
@@ -358,9 +369,9 @@ mod tests {
             .into_iter(),
         );
 
-        let req = TestRequest::default().to_http_request();
+        let headers = HeaderMap::default();
 
-        let (rb, _) = into_event_batch(&req, json, schema, None, None).unwrap();
+        let (rb, _) = into_event_batch(&headers, json, schema, None, None).unwrap();
 
         assert_eq!(rb.num_rows(), 1);
         assert_eq!(rb.num_columns(), 5);
@@ -390,9 +401,9 @@ mod tests {
             .into_iter(),
         );
 
-        let req = TestRequest::default().to_http_request();
+        let headers = HeaderMap::default();
 
-        assert!(into_event_batch(&req, json, schema, None, None).is_err());
+        assert!(into_event_batch(&headers, json, schema, None, None).is_err());
     }
 
     #[test]
@@ -407,10 +418,9 @@ mod tests {
             ]
             .into_iter(),
         );
+        let headers = HeaderMap::default();
 
-        let req = TestRequest::default().to_http_request();
-
-        let (rb, _) = into_event_batch(&req, json, schema, None, None).unwrap();
+        let (rb, _) = into_event_batch(&headers, json, schema, None, None).unwrap();
 
         assert_eq!(rb.num_rows(), 1);
         assert_eq!(rb.num_columns(), 3);
@@ -419,10 +429,9 @@ mod tests {
     #[test]
     fn non_object_arr_is_err() {
         let json = json!([1]);
+        let headers = HeaderMap::default();
 
-        let req = TestRequest::default().to_http_request();
-
-        assert!(into_event_batch(&req, json, HashMap::default(), None, None).is_err())
+        assert!(into_event_batch(&headers, json, HashMap::default(), None, None).is_err())
     }
 
     #[test]
@@ -442,10 +451,9 @@ mod tests {
                 "c": null
             },
         ]);
+        let headers = HeaderMap::default();
 
-        let req = TestRequest::default().to_http_request();
-
-        let (rb, _) = into_event_batch(&req, json, HashMap::default(), None, None).unwrap();
+        let (rb, _) = into_event_batch(&headers, json, HashMap::default(), None, None).unwrap();
 
         assert_eq!(rb.num_rows(), 3);
         assert_eq!(rb.num_columns(), 6);
@@ -490,10 +498,9 @@ mod tests {
                 "c": null
             },
         ]);
+        let headers = HeaderMap::default();
 
-        let req = TestRequest::default().to_http_request();
-
-        let (rb, _) = into_event_batch(&req, json, HashMap::default(), None, None).unwrap();
+        let (rb, _) = into_event_batch(&headers, json, HashMap::default(), None, None).unwrap();
 
         assert_eq!(rb.num_rows(), 3);
         assert_eq!(rb.num_columns(), 6);
@@ -539,9 +546,9 @@ mod tests {
             ]
             .into_iter(),
         );
-        let req = TestRequest::default().to_http_request();
+        let headers = HeaderMap::default();
 
-        let (rb, _) = into_event_batch(&req, json, schema, None, None).unwrap();
+        let (rb, _) = into_event_batch(&headers, json, schema, None, None).unwrap();
 
         assert_eq!(rb.num_rows(), 3);
         assert_eq!(rb.num_columns(), 6);
@@ -579,8 +586,6 @@ mod tests {
             },
         ]);
 
-        let req = TestRequest::default().to_http_request();
-
         let schema = fields_to_map(
             [
                 Field::new("a", DataType::Int64, true),
@@ -589,8 +594,9 @@ mod tests {
             ]
             .into_iter(),
         );
+        let headers = HeaderMap::default();
 
-        assert!(into_event_batch(&req, json, schema, None, None).is_err());
+        assert!(into_event_batch(&headers, json, schema, None, None).is_err());
     }
 
     #[test]
@@ -616,9 +622,9 @@ mod tests {
             },
         ]);
 
-        let req = TestRequest::default().to_http_request();
+        let headers = HeaderMap::default();
 
-        let (rb, _) = into_event_batch(&req, json, HashMap::default(), None, None).unwrap();
+        let (rb, _) = into_event_batch(&headers, json, HashMap::default(), None, None).unwrap();
 
         assert_eq!(rb.num_rows(), 4);
         assert_eq!(rb.num_columns(), 7);

@@ -18,7 +18,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use actix_web::HttpRequest;
+use actix_web::http::header::HeaderMap;
 use arrow_schema::Field;
 use bytes::Bytes;
 use chrono::{DateTime, NaiveDateTime, Utc};
@@ -40,12 +40,11 @@ use crate::{
 };
 
 pub async fn flatten_and_push_logs(
-    req: HttpRequest,
+    headers: &HeaderMap,
     body: Bytes,
     stream_name: &str,
 ) -> Result<(), PostError> {
-    let log_source = req
-        .headers()
+    let log_source = headers
         .get(LOG_SOURCE_KEY)
         .map(|header| header.to_str().unwrap_or_default())
         .unwrap_or_default();
@@ -53,17 +52,17 @@ pub async fn flatten_and_push_logs(
         let json = kinesis::flatten_kinesis_logs(&body);
         for record in json.iter() {
             let body: Bytes = serde_json::to_vec(record).unwrap().into();
-            push_logs(stream_name, &req, &body).await?;
+            push_logs(stream_name, headers, &body).await?;
         }
     } else {
-        push_logs(stream_name, &req, &body).await?;
+        push_logs(stream_name, headers, &body).await?;
     }
     Ok(())
 }
 
 pub async fn push_logs(
     stream_name: &str,
-    req: &HttpRequest,
+    headers: &HeaderMap,
     body: &Bytes,
 ) -> Result<(), PostError> {
     let time_partition = STREAM_INFO.get_time_partition(stream_name)?;
@@ -91,7 +90,7 @@ pub async fn push_logs(
 
         create_process_record_batch(
             stream_name,
-            req,
+            headers,
             value,
             static_schema_flag.as_ref(),
             time_partition.as_ref(),
@@ -108,7 +107,7 @@ pub async fn push_logs(
 #[allow(clippy::too_many_arguments)]
 pub async fn create_process_record_batch(
     stream_name: &str,
-    req: &HttpRequest,
+    headers: &HeaderMap,
     value: Value,
     static_schema_flag: Option<&String>,
     time_partition: Option<&String>,
@@ -116,8 +115,13 @@ pub async fn create_process_record_batch(
     custom_partition_values: &HashMap<String, String>,
     origin_size: u64,
 ) -> Result<(), PostError> {
-    let (rb, is_first_event) =
-        get_stream_schema(stream_name, req, value, static_schema_flag, time_partition)?;
+    let (rb, is_first_event) = get_stream_schema(
+        stream_name,
+        headers,
+        value,
+        static_schema_flag,
+        time_partition,
+    )?;
     event::Event {
         rb,
         stream_name: stream_name.to_owned(),
@@ -137,8 +141,8 @@ pub async fn create_process_record_batch(
 
 pub fn get_stream_schema(
     stream_name: &str,
-    req: &HttpRequest,
-    body: Value,
+    headers: &HeaderMap,
+    data: Value,
     static_schema_flag: Option<&String>,
     time_partition: Option<&String>,
 ) -> Result<(arrow_array::RecordBatch, bool), PostError> {
@@ -148,18 +152,18 @@ pub fn get_stream_schema(
         .ok_or(PostError::StreamNotFound(stream_name.to_owned()))?
         .schema
         .clone();
-    into_event_batch(req, body, schema, static_schema_flag, time_partition)
+    into_event_batch(headers, data, schema, static_schema_flag, time_partition)
 }
 
 pub fn into_event_batch(
-    req: &HttpRequest,
+    headers: &HeaderMap,
     data: Value,
     schema: HashMap<String, Arc<Field>>,
     static_schema_flag: Option<&String>,
     time_partition: Option<&String>,
 ) -> Result<(arrow_array::RecordBatch, bool), PostError> {
-    let tags = collect_labelled_headers(req, PREFIX_TAGS, SEPARATOR)?;
-    let metadata = collect_labelled_headers(req, PREFIX_META, SEPARATOR)?;
+    let tags = collect_labelled_headers(headers, PREFIX_TAGS, SEPARATOR)?;
+    let metadata = collect_labelled_headers(headers, PREFIX_META, SEPARATOR)?;
     let event = format::json::Event {
         data,
         tags,

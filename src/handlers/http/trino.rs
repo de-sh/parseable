@@ -78,10 +78,7 @@ impl FromRequest for TrinoQuery {
     }
 }
 
-pub async fn trino_query(
-    _req: HttpRequest,
-    query_request: TrinoQuery,
-) -> Result<impl Responder, QueryError> {
+pub async fn trino_query(query_request: TrinoQuery) -> Result<impl Responder, QueryError> {
     let sql = query_request.query;
 
     let (endpoint, catalog, schema, username) =

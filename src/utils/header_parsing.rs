@@ -17,15 +17,15 @@
  */
 
 const MAX_HEADERS_ALLOWED: usize = 10;
-use actix_web::{HttpRequest, HttpResponse, ResponseError};
+use actix_web::{http::header::HeaderMap, HttpResponse, ResponseError};
 
 pub fn collect_labelled_headers(
-    req: &HttpRequest,
+    headers: &HeaderMap,
     prefix: &str,
     kv_separator: char,
 ) -> Result<String, ParseHeaderError> {
     // filter out headers which has right prefix label and convert them into str;
-    let headers = req.headers().iter().filter_map(|(key, value)| {
+    let headers = headers.iter().filter_map(|(key, value)| {
         let key = key.as_str().strip_prefix(prefix)?;
         Some((key, value))
     });
