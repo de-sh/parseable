@@ -19,16 +19,14 @@
 use std::{
     collections::HashMap,
     fmt::{Debug, Display},
-    sync::Arc,
 };
 
-use crate::about::current;
 use crate::handlers::http::modal::utils::rbac_utils::get_metadata;
+use crate::{about::current, HTTP_CLIENT};
 
 use super::option::CONFIG;
 use chrono::{DateTime, Utc};
 use once_cell::sync::Lazy;
-use reqwest::Client;
 use serde::Serialize;
 use serde_json::{json, Value};
 use tracing::error;
@@ -39,7 +37,6 @@ use url::Url;
 static AUDIT_LOGGER: Lazy<Option<AuditLogger>> = Lazy::new(AuditLogger::new);
 
 pub struct AuditLogger {
-    client: Arc<Client>,
     log_endpoint: Url,
     username: Option<String>,
     password: Option<String>,
@@ -62,13 +59,10 @@ impl AuditLogger {
             }
         };
 
-        let client = Arc::new(reqwest::Client::new());
-
         let username = CONFIG.parseable.audit_username.clone();
         let password = CONFIG.parseable.audit_password.clone();
 
         Some(AuditLogger {
-            client,
             log_endpoint,
             username,
             password,
@@ -76,8 +70,7 @@ impl AuditLogger {
     }
 
     async fn send_log(&self, json: Value) {
-        let mut req = self
-            .client
+        let mut req = HTTP_CLIENT
             .post(self.log_endpoint.as_str())
             .json(&json)
             .header("x-p-stream", "audit_log");

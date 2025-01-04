@@ -30,7 +30,7 @@ use humantime_serde::re::humantime;
 use reqwest::ClientBuilder;
 use tracing::error;
 
-use crate::utils::json;
+use crate::{utils::json, HTTP_CLIENT};
 
 use super::{AlertState, CallableTarget, Context};
 
@@ -213,10 +213,6 @@ impl TargetType {
     }
 }
 
-fn default_client_builder() -> ClientBuilder {
-    ClientBuilder::new()
-}
-
 #[derive(Default, Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SlackWebHook {
     endpoint: String,
@@ -225,10 +221,6 @@ pub struct SlackWebHook {
 #[async_trait]
 impl CallableTarget for SlackWebHook {
     async fn call(&self, payload: &Context) {
-        let client = default_client_builder()
-            .build()
-            .expect("Client can be constructed on this system");
-
         let alert = match payload.alert_info.alert_state {
             AlertState::SetToFiring => {
                 serde_json::json!({ "text": payload.default_alert_string() })
@@ -239,7 +231,7 @@ impl CallableTarget for SlackWebHook {
             _ => unreachable!(),
         };
 
-        if let Err(e) = client.post(&self.endpoint).json(&alert).send().await {
+        if let Err(e) = HTTP_CLIENT.post(&self.endpoint).json(&alert).send().await {
             error!("Couldn't make call to webhook, error: {}", e)
         }
     }
@@ -258,7 +250,7 @@ pub struct OtherWebHook {
 #[async_trait]
 impl CallableTarget for OtherWebHook {
     async fn call(&self, payload: &Context) {
-        let mut builder = default_client_builder();
+        let mut builder = ClientBuilder::new();
         if self.skip_tls_check {
             builder = builder.danger_accept_invalid_certs(true)
         }
@@ -295,7 +287,7 @@ pub struct AlertManager {
 #[async_trait]
 impl CallableTarget for AlertManager {
     async fn call(&self, payload: &Context) {
-        let mut builder = default_client_builder();
+        let mut builder = ClientBuilder::new();
 
         if self.skip_tls_check {
             builder = builder.danger_accept_invalid_certs(true)

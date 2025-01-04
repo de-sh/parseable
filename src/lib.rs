@@ -45,8 +45,22 @@ pub mod users;
 mod utils;
 mod validator;
 
+use std::time::Duration;
+
 pub use handlers::http::modal::{
     ingest_server::IngestServer, query_server::QueryServer, server::Server, ParseableServer,
 };
+use once_cell::sync::Lazy;
+use reqwest::{Client, ClientBuilder};
 
 pub const STORAGE_UPLOAD_INTERVAL: u32 = 60;
+
+static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
+    ClientBuilder::new()
+        .connect_timeout(Duration::from_secs(10)) // set a timeout of 10s for each connection setup
+        .timeout(Duration::from_secs(5)) // set a timeout of 5s for each request
+        .gzip(true) // gzip compress for all requests
+        .use_rustls_tls() // use only the rustls backend
+        .build()
+        .expect("Construction of client shouldn't fail")
+});
