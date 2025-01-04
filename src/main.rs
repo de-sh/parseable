@@ -21,14 +21,13 @@ use parseable::{
     option::{Mode, CONFIG},
     rbac, storage, IngestServer, ParseableServer, QueryServer, Server,
 };
-use tracing_subscriber::EnvFilter;
+
+mod otlp;
 
 #[actix_web::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .compact()
-        .init();
+    // Guard ensures opentelemetry-related termination processing
+    let _guard = otlp::init_tracing_subscriber();
 
     // these are empty ptrs so mem footprint should be minimal
     let server: Box<dyn ParseableServer> = match CONFIG.parseable.mode {
