@@ -59,11 +59,12 @@ use crate::metadata::STREAM_INFO;
 use crate::rbac;
 use crate::rbac::Users;
 
+/// Arrow Flight service implementation for Parseable
 #[derive(Clone, Debug)]
-pub struct AirServiceImpl {}
+pub struct Airline;
 
 #[tonic::async_trait]
-impl FlightService for AirServiceImpl {
+impl FlightService for Airline {
     type HandshakeStream = stream::BoxStream<'static, Result<HandshakeResponse, Status>>;
     type ListFlightsStream = stream::BoxStream<'static, Result<FlightInfo, Status>>;
     type DoGetStream = stream::BoxStream<'static, Result<FlightData, Status>>;
@@ -129,7 +130,7 @@ impl FlightService for AirServiceImpl {
 
         let ticket = get_query_from_ticket(&req)?;
 
-        info!("query requested to airplane: {:?}", ticket);
+        info!("query requested to airline: {:?}", ticket);
 
         // get the query session_state
         let session_state = QUERY_SESSION.state();
@@ -291,9 +292,7 @@ pub fn server() -> impl Future<Output = Result<(), Box<dyn std::error::Error + S
 CONFIG.parseable.address, err));
     addr.set_port(CONFIG.parseable.flight_port);
 
-    let service = AirServiceImpl {};
-
-    let svc = FlightServiceServer::new(service)
+    let svc = FlightServiceServer::new(Airline)
         .max_encoding_message_size(usize::MAX)
         .max_decoding_message_size(usize::MAX)
         .send_compressed(CompressionEncoding::Zstd)

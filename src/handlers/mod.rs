@@ -16,7 +16,7 @@
  *
  */
 
-pub mod airplane;
+pub mod airline;
 pub mod http;
 pub mod livetail;
 

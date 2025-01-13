@@ -122,7 +122,7 @@ impl ParseableServer for Server {
         }
 
         tokio::spawn(handlers::livetail::server());
-        tokio::spawn(handlers::airplane::server());
+        tokio::spawn(handlers::airline::server());
 
         let app = self.start(prometheus, CONFIG.parseable.openid.clone());
 

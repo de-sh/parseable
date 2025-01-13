@@ -17,7 +17,7 @@
  */
 
 use crate::correlation::CORRELATIONS;
-use crate::handlers::airplane;
+use crate::handlers::airline;
 use crate::handlers::http::base_path;
 use crate::handlers::http::cluster::{self, init_cluster_metrics_schedular};
 use crate::handlers::http::logstream::create_internal_stream_if_not_exists;
@@ -120,7 +120,7 @@ impl ParseableServer for QueryServer {
         let (mut remote_sync_handler, mut remote_sync_outbox, mut remote_sync_inbox) =
             sync::object_store_sync().await;
 
-        tokio::spawn(airplane::server());
+        tokio::spawn(airline::server());
         let app = self.start(prometheus, CONFIG.parseable.openid.clone());
 
         tokio::pin!(app);
