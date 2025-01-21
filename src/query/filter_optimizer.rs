@@ -17,7 +17,7 @@
 //  */
 use std::{collections::HashMap, sync::Arc};
 
-use arrow_schema::Field;
+use arrow_schema::{Field, Fields};
 use datafusion::{
     common::{tree_node::Transformed, DFSchema},
     error::DataFusionError,
@@ -58,6 +58,7 @@ impl OptimizerRule for FilterOptimizerRule {
         let LogicalPlan::TableScan(table) = &plan else {
             return Ok(Transformed::no(plan));
         };
+
         if table.projection.is_none()
             || table
                 .filters
@@ -79,21 +80,21 @@ impl OptimizerRule for FilterOptimizerRule {
             let tags_index = schema.index_of(&self.column)?;
             let tags_field = schema.field(tags_index);
             // modify source table projection to include tags
-            let df_schema = table.projected_schema.fields().clone();
+            let mut df_schema = table.projected_schema.fields().to_vec();
 
             // from datafusion 37.1.0 -> 40.0.0
             // `DFField` has been removed
             // `DFSchema.new_with_metadata()` has changed
             // it requires `qualified_fields`(`Vec<(Option<TableReference>, Arc<Field>)>`) instead of `fields`
             // hence, use `DFSchema::from_unqualified_fields()` for relatively unchanged code
-            df_schema.to_vec().push(Arc::new(Field::new(
+            df_schema.push(Arc::new(Field::new(
                 tags_field.name(),
                 tags_field.data_type().clone(),
                 tags_field.is_nullable(),
             )));
 
             table.projected_schema = Arc::new(DFSchema::from_unqualified_fields(
-                df_schema,
+                Fields::from(df_schema),
                 HashMap::default(),
             )?);
             if let Some(projection) = &mut table.projection {
