@@ -45,41 +45,14 @@ use chrono::Utc;
 use http::{HeaderName, HeaderValue};
 use itertools::Itertools;
 use serde_json::{json, Value};
-use std::fs;
 use std::str::FromStr;
 use std::sync::Arc;
 use tracing::warn;
 
 pub async fn delete(stream_name: Path<String>) -> Result<impl Responder, StreamError> {
     let stream_name = stream_name.into_inner();
-    if !PARSEABLE.streams.contains(&stream_name) {
-        return Err(StreamNotFound(stream_name).into());
-    }
-
-    let objectstore = PARSEABLE.storage.get_object_store();
-
-    // Delete from storage
-    objectstore.delete_stream(&stream_name).await?;
-    // Delete from staging
-    let stream_dir = PARSEABLE.streams.get_or_create(&stream_name);
-    if fs::remove_dir_all(&stream_dir.data_path).is_err() {
-        warn!(
-            "failed to delete local data for stream {}. Clean {} manually",
-            stream_name,
-            stream_dir.data_path.to_string_lossy()
-        )
-    }
-
-    if let Some(hot_tier_manager) = HotTierManager::global() {
-        if hot_tier_manager.check_stream_hot_tier_exists(&stream_name) {
-            hot_tier_manager.delete_hot_tier(&stream_name).await?;
-        }
-    }
-
-    // Delete from memory
-    PARSEABLE.streams.delete_stream(&stream_name);
-    stats::delete_stats(&stream_name, "json")
-        .unwrap_or_else(|e| warn!("failed to delete stats for stream {}: {:?}", stream_name, e));
+    
+    PARSEABLE.delete_stream(&stream_name).await?;
 
     Ok((format!("log stream {stream_name} deleted"), StatusCode::OK))
 }

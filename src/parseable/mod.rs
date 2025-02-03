@@ -17,7 +17,7 @@
  *
  */
 
-use std::{collections::HashMap, num::NonZeroU32, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, fs::remove_dir_all, num::NonZeroU32, path::PathBuf, sync::Arc};
 
 use actix_web::http::header::HeaderMap;
 use arrow_schema::{Field, Schema};
@@ -27,24 +27,17 @@ use clap::{error::ErrorKind, Parser};
 use http::StatusCode;
 use once_cell::sync::Lazy;
 pub use streams::{StreamNotFound, Streams};
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::{
-    cli::{Cli, Options, StorageOptions},
-    event::format::LogSource,
-    handlers::http::{
+    cli::{Cli, Options, StorageOptions}, event::format::LogSource, handlers::http::{
         ingest::PostError,
         logstream::error::{CreateStreamError, StreamError},
         modal::utils::logstream_utils::PutStreamHeaders,
-    },
-    metadata::{LogStreamMetadata, SchemaVersion},
-    option::Mode,
-    static_schema::{convert_static_schema_to_arrow_schema, StaticSchema},
-    storage::{
+    }, hottier::HotTierManager, metadata::{LogStreamMetadata, SchemaVersion}, option::Mode, static_schema::{convert_static_schema_to_arrow_schema, StaticSchema}, stats, storage::{
         object_storage::parseable_json_path, ObjectStorageError, ObjectStorageProvider,
         ObjectStoreFormat, Owner, Permisssion, StreamType,
-    },
-    validator,
+    }, validator
 };
 
 mod reader;
@@ -591,6 +584,39 @@ impl Parseable {
                 status: StatusCode::EXPECTATION_FAILED,
             });
         }
+
+        Ok(())
+    }
+
+    pub async fn delete_stream(&self, stream_name: &str) -> Result<(), StreamError> {
+        if !PARSEABLE.streams.contains(stream_name) {
+            return Err(StreamNotFound(stream_name.to_owned()).into());
+        }
+    
+        let objectstore = PARSEABLE.storage.get_object_store();
+    
+        // Delete from storage
+        objectstore.delete_stream(stream_name).await?;
+        // Delete from staging
+        let stream_dir = PARSEABLE.streams.get_or_create(stream_name);
+        if remove_dir_all(&stream_dir.data_path).is_err() {
+            warn!(
+                "failed to delete local data for stream {}. Clean {} manually",
+                stream_name,
+                stream_dir.data_path.to_string_lossy()
+            )
+        }
+    
+        if let Some(hot_tier_manager) = HotTierManager::global() {
+            if hot_tier_manager.check_stream_hot_tier_exists(&stream_name) {
+                hot_tier_manager.delete_hot_tier(&stream_name).await?;
+            }
+        }
+    
+        // Delete from memory
+        PARSEABLE.streams.delete_stream(&stream_name);
+        stats::delete_stats(&stream_name, "json")
+            .unwrap_or_else(|e| warn!("failed to delete stats for stream {}: {:?}", stream_name, e));
 
         Ok(())
     }
