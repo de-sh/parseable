@@ -25,8 +25,10 @@ use http::StatusCode;
 use tracing::warn;
 
 use crate::{
-    catalog::remove_manifest_from_snapshot, handlers::http::logstream::error::StreamError,
-    parseable::PARSEABLE, staging::StreamNotFound, stats,
+    catalog::remove_manifest_from_snapshot,
+    handlers::http::logstream::error::StreamError,
+    parseable::{StreamNotFound, PARSEABLE},
+    stats,
 };
 
 pub async fn retention_cleanup(

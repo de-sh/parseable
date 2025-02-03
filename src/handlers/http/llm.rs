@@ -22,7 +22,7 @@ use itertools::Itertools;
 use reqwest;
 use serde_json::{json, Value};
 
-use crate::{parseable::PARSEABLE, staging::StreamNotFound};
+use crate::{parseable::StreamNotFound, parseable::PARSEABLE};
 
 const OPEN_AI_URL: &str = "https://api.openai.com/v1/chat/completions";
 

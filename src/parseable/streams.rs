@@ -44,7 +44,7 @@ use tracing::error;
 
 use crate::{
     cli::Options,
-    event::{format::LogSource, DEFAULT_TIMESTAMP_KEY},
+    event::DEFAULT_TIMESTAMP_KEY,
     handlers::http::modal::ingest_server::INGESTOR_META,
     metadata::{LogStreamMetadata, SchemaVersion},
     metrics,
@@ -425,58 +425,28 @@ pub struct Streams(RwLock<HashMap<String, StreamRef<'static>>>);
 // 4. When first event is sent to stream (update the schema)
 // 5. When set alert API is called (update the alert)
 impl Streams {
-    #[allow(clippy::too_many_arguments)]
-    pub fn add_stream(
-        &self,
-        stream_name: String,
-        created_at: String,
-        time_partition: String,
-        time_partition_limit: Option<NonZeroU32>,
-        custom_partition: Option<String>,
-        static_schema_flag: bool,
-        static_schema: HashMap<String, Arc<Field>>,
-        stream_type: StreamType,
-        schema_version: SchemaVersion,
-        log_source: LogSource,
-    ) {
-        let metadata = LogStreamMetadata::new(
-            created_at,
-            time_partition,
-            time_partition_limit,
-            custom_partition,
-            static_schema_flag,
-            static_schema,
-            stream_type,
-            schema_version,
-            log_source,
-        );
+    pub fn create(&self, stream_name: String, metadata: LogStreamMetadata) -> StreamRef<'static> {
         let stream = Stream::new(&PARSEABLE.options, &stream_name, metadata);
-        self.write().expect(LOCK_EXPECT).insert(stream_name, stream);
+        self.write()
+            .expect(LOCK_EXPECT)
+            .insert(stream_name, stream.clone());
+
+        stream
     }
 
     /// Try to get the handle of a stream in staging, if it doesn't exist return `None`.
-    pub fn get_stream(&self, stream_name: &str) -> Option<StreamRef<'static>> {
+    pub fn get(&self, stream_name: &str) -> Option<StreamRef<'static>> {
         self.read().unwrap().get(stream_name).cloned()
     }
 
     /// Get the handle to a stream in staging, create one if it doesn't exist
-    pub fn get_or_create_stream(&self, stream_name: &str) -> StreamRef<'static> {
-        if let Some(staging) = self.get_stream(stream_name) {
+    pub fn get_or_create(&self, stream_name: &str) -> StreamRef<'static> {
+        if let Some(staging) = self.get(stream_name) {
             return staging;
         }
 
-        let stream = Stream::new(
-            &PARSEABLE.options,
-            stream_name,
-            LogStreamMetadata::default(),
-        );
-
         // Gets write privileges only for creating the stream when it doesn't already exist.
-        self.write()
-            .unwrap()
-            .insert(stream_name.to_owned(), stream.clone());
-
-        stream
+        self.create(stream_name.to_owned(), LogStreamMetadata::default())
     }
 
     pub fn clear(&self, stream_name: &str) {

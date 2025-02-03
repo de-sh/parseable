@@ -26,10 +26,9 @@ use crate::hottier::{HotTierManager, StreamHotTier, CURRENT_HOT_TIER_VERSION};
 use crate::metadata::SchemaVersion;
 use crate::metrics::{EVENTS_INGESTED_DATE, EVENTS_INGESTED_SIZE_DATE, EVENTS_STORAGE_SIZE_DATE};
 use crate::option::Mode;
-use crate::parseable::PARSEABLE;
+use crate::parseable::{StreamNotFound, PARSEABLE};
 use crate::rbac::role::Action;
 use crate::rbac::Users;
-use crate::staging::StreamNotFound;
 use crate::stats::{event_labels_date, storage_size_labels_date, Stats};
 use crate::storage::retention::Retention;
 use crate::storage::{StreamInfo, StreamType};
@@ -62,7 +61,7 @@ pub async fn delete(stream_name: Path<String>) -> Result<impl Responder, StreamE
     // Delete from storage
     objectstore.delete_stream(&stream_name).await?;
     // Delete from staging
-    let stream_dir = PARSEABLE.streams.get_or_create_stream(&stream_name);
+    let stream_dir = PARSEABLE.streams.get_or_create(&stream_name);
     if fs::remove_dir_all(&stream_dir.data_path).is_err() {
         warn!(
             "failed to delete local data for stream {}. Clean {} manually",
@@ -607,7 +606,7 @@ pub mod error {
 
     use crate::{
         hottier::HotTierError,
-        staging::StreamNotFound,
+        parseable::StreamNotFound,
         storage::ObjectStorageError,
         validator::error::{
             AlertValidationError, HotTierValidationError, StreamNameValidationError,

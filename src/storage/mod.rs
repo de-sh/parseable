@@ -21,7 +21,7 @@ use crate::{
     event::format::LogSource,
     metadata::SchemaVersion,
     option::StandaloneWithDistributed,
-    staging::StreamNotFound,
+    parseable::StreamNotFound,
     stats::FullStats,
     utils::json::{deserialize_string_as_true, serialize_bool_as_true},
 };

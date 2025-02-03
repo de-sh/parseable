@@ -63,16 +63,13 @@ impl Event {
             commit_schema(&self.stream_name, self.rb.schema())?;
         }
 
-        PARSEABLE
-            .streams
-            .get_or_create_stream(&self.stream_name)
-            .push(
-                &key,
-                &self.rb,
-                self.parsed_timestamp,
-                &self.custom_partition_values,
-                self.stream_type,
-            )?;
+        PARSEABLE.streams.get_or_create(&self.stream_name).push(
+            &key,
+            &self.rb,
+            self.parsed_timestamp,
+            &self.custom_partition_values,
+            self.stream_type,
+        )?;
 
         update_stats(
             &self.stream_name,
@@ -90,16 +87,13 @@ impl Event {
     pub fn process_unchecked(&self) -> Result<(), EventError> {
         let key = get_schema_key(&self.rb.schema().fields);
 
-        PARSEABLE
-            .streams
-            .get_or_create_stream(&self.stream_name)
-            .push(
-                &key,
-                &self.rb,
-                self.parsed_timestamp,
-                &self.custom_partition_values,
-                self.stream_type,
-            )?;
+        PARSEABLE.streams.get_or_create(&self.stream_name).push(
+            &key,
+            &self.rb,
+            self.parsed_timestamp,
+            &self.custom_partition_values,
+            self.stream_type,
+        )?;
 
         Ok(())
     }
@@ -135,7 +129,7 @@ pub fn commit_schema(stream_name: &str, schema: Arc<Schema>) -> Result<(), Event
 pub mod error {
     use arrow_schema::ArrowError;
 
-    use crate::staging::StagingError;
+    use crate::parseable::StagingError;
     use crate::storage::ObjectStorageError;
 
     #[derive(Debug, thiserror::Error)]

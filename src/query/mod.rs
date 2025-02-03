@@ -616,7 +616,7 @@ pub fn flatten_objects_for_count(objects: Vec<Value>) -> Vec<Value> {
 }
 
 pub mod error {
-    use crate::{staging::StreamNotFound, storage::ObjectStorageError};
+    use crate::{parseable::StreamNotFound, storage::ObjectStorageError};
     use datafusion::error::DataFusionError;
 
     #[derive(Debug, thiserror::Error)]

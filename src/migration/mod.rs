@@ -288,7 +288,7 @@ async fn migration_stream(
 
     let schema = PARSEABLE
         .streams
-        .get_or_create_stream(stream)
+        .get_or_create(stream)
         .updated_schema(arrow_schema);
     let schema = HashMap::from_iter(
         schema
