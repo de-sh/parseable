@@ -29,12 +29,12 @@ use crate::option::Mode;
 use crate::parseable::PARSEABLE;
 use crate::rbac::role::Action;
 use crate::rbac::Users;
-use crate::staging::{Stream, STAGING};
-use crate::{stats, validator};
+use crate::staging::StreamNotFound;
 use crate::stats::{event_labels_date, storage_size_labels_date, Stats};
 use crate::storage::retention::Retention;
 use crate::storage::{StreamInfo, StreamType};
 use crate::utils::actix::extract_session_key_from_req;
+use crate::{stats, validator, LOCK_EXPECT};
 
 use actix_web::http::header::{self, HeaderMap};
 use actix_web::http::StatusCode;
@@ -53,15 +53,16 @@ use tracing::warn;
 
 pub async fn delete(stream_name: Path<String>) -> Result<impl Responder, StreamError> {
     let stream_name = stream_name.into_inner();
-    if !PARSEABLE.streams.stream_exists(&stream_name) {
-        return Err(StreamError::StreamNotFound(stream_name));
+    if !PARSEABLE.streams.contains(&stream_name) {
+        return Err(StreamNotFound(stream_name).into());
     }
 
     let objectstore = PARSEABLE.storage.get_object_store();
 
     // Delete from storage
     objectstore.delete_stream(&stream_name).await?;
-    let stream_dir = Stream::new(&PARSEABLE.options, &stream_name);
+    // Delete from staging
+    let stream_dir = PARSEABLE.streams.get_or_create_stream(&stream_name);
     if fs::remove_dir_all(&stream_dir.data_path).is_err() {
         warn!(
             "failed to delete local data for stream {}. Clean {} manually",
@@ -78,8 +79,6 @@ pub async fn delete(stream_name: Path<String>) -> Result<impl Responder, StreamE
 
     // Delete from memory
     PARSEABLE.streams.delete_stream(&stream_name);
-    // Delete from staging
-    STAGING.delete_stream(&stream_name);
     stats::delete_stats(&stream_name, "json")
         .unwrap_or_else(|e| warn!("failed to delete stats for stream {}: {:?}", stream_name, e));
 
@@ -139,10 +138,10 @@ pub async fn schema(stream_name: Path<String>) -> Result<impl Responder, StreamE
                 .create_stream_and_schema_from_storage(&stream_name)
                 .await?
             {
-                return Err(StreamError::StreamNotFound(stream_name.clone()));
+                return Err(StreamNotFound(stream_name.clone()).into());
             }
         }
-        Err(err) => return Err(StreamError::from(err)),
+        Err(err) => return Err(err.into()),
     };
     match update_schema_when_distributed(&vec![stream_name.clone()]).await {
         Ok(_) => {
@@ -172,7 +171,7 @@ pub async fn put_stream(
 
 pub async fn get_retention(stream_name: Path<String>) -> Result<impl Responder, StreamError> {
     let stream_name = stream_name.into_inner();
-    if !PARSEABLE.streams.stream_exists(&stream_name) {
+    if !PARSEABLE.streams.contains(&stream_name) {
         // For query mode, if the stream not found in memory map,
         //check if it exists in the storage
         //create stream and schema from storage
@@ -182,10 +181,10 @@ pub async fn get_retention(stream_name: Path<String>) -> Result<impl Responder, 
                 .await
             {
                 Ok(true) => {}
-                Ok(false) | Err(_) => return Err(StreamError::StreamNotFound(stream_name.clone())),
+                Ok(false) | Err(_) => return Err(StreamNotFound(stream_name.clone()).into()),
             }
         } else {
-            return Err(StreamError::StreamNotFound(stream_name));
+            return Err(StreamNotFound(stream_name).into());
         }
     }
     let retention = PARSEABLE.streams.get_retention(&stream_name);
@@ -208,7 +207,7 @@ pub async fn put_retention(
 ) -> Result<impl Responder, StreamError> {
     let stream_name = stream_name.into_inner();
 
-    if !PARSEABLE.streams.stream_exists(&stream_name) {
+    if !PARSEABLE.streams.contains(&stream_name) {
         // For query mode, if the stream not found in memory map,
         //check if it exists in the storage
         //create stream and schema from storage
@@ -218,10 +217,10 @@ pub async fn put_retention(
                 .await
             {
                 Ok(true) => {}
-                Ok(false) | Err(_) => return Err(StreamError::StreamNotFound(stream_name.clone())),
+                Ok(false) | Err(_) => return Err(StreamNotFound(stream_name.clone()).into()),
             }
         } else {
-            return Err(StreamError::StreamNotFound(stream_name));
+            return Err(StreamNotFound(stream_name).into());
         }
     }
 
@@ -277,7 +276,7 @@ pub async fn get_stats(
 ) -> Result<impl Responder, StreamError> {
     let stream_name = stream_name.into_inner();
 
-    if !PARSEABLE.streams.stream_exists(&stream_name) {
+    if !PARSEABLE.streams.contains(&stream_name) {
         // For query mode, if the stream not found in memory map,
         //check if it exists in the storage
         //create stream and schema from storage
@@ -287,10 +286,10 @@ pub async fn get_stats(
                 .await
             {
                 Ok(true) => {}
-                Ok(false) | Err(_) => return Err(StreamError::StreamNotFound(stream_name.clone())),
+                Ok(false) | Err(_) => return Err(StreamNotFound(stream_name.clone()).into()),
             }
         } else {
-            return Err(StreamError::StreamNotFound(stream_name));
+            return Err(StreamNotFound(stream_name).into());
         }
     }
 
@@ -314,14 +313,17 @@ pub async fn get_stats(
     }
 
     let stats = stats::get_current_stats(&stream_name, "json")
-        .ok_or(StreamError::StreamNotFound(stream_name.clone()))?;
+        .ok_or_else(|| StreamNotFound(stream_name.clone()))?;
 
     let ingestor_stats: Option<Vec<QueriedStats>> = None;
 
     let hash_map = PARSEABLE.streams.read().expect("Readable");
     let stream_meta = &hash_map
         .get(&stream_name)
-        .ok_or(StreamError::StreamNotFound(stream_name.clone()))?;
+        .ok_or_else(|| StreamNotFound(stream_name.clone()))?
+        .metadata
+        .read()
+        .expect(LOCK_EXPECT);
 
     let time = Utc::now();
 
@@ -380,17 +382,17 @@ pub async fn get_stats(
 
 pub async fn get_stream_info(stream_name: Path<String>) -> Result<impl Responder, StreamError> {
     let stream_name = stream_name.into_inner();
-    if !PARSEABLE.streams.stream_exists(&stream_name) {
+    if !PARSEABLE.streams.contains(&stream_name) {
         if PARSEABLE.options.mode == Mode::Query {
             match PARSEABLE
                 .create_stream_and_schema_from_storage(&stream_name)
                 .await
             {
                 Ok(true) => {}
-                Ok(false) | Err(_) => return Err(StreamError::StreamNotFound(stream_name.clone())),
+                Ok(false) | Err(_) => return Err(StreamNotFound(stream_name.clone()).into()),
             }
         } else {
-            return Err(StreamError::StreamNotFound(stream_name));
+            return Err(StreamNotFound(stream_name).into());
         }
     }
     let storage = PARSEABLE.storage.get_object_store();
@@ -410,9 +412,12 @@ pub async fn get_stream_info(stream_name: Path<String>) -> Result<impl Responder
         };
 
     let hash_map = PARSEABLE.streams.read().unwrap();
-    let stream_meta = &hash_map
+    let stream_meta = hash_map
         .get(&stream_name)
-        .ok_or(StreamError::StreamNotFound(stream_name.clone()))?;
+        .ok_or_else(|| StreamNotFound(stream_name.clone()))?
+        .metadata
+        .read()
+        .expect(LOCK_EXPECT);
 
     let stream_info = StreamInfo {
         stream_type: stream_meta.stream_type,
@@ -435,7 +440,7 @@ pub async fn put_stream_hot_tier(
     Json(mut hottier): Json<StreamHotTier>,
 ) -> Result<impl Responder, StreamError> {
     let stream_name = stream_name.into_inner();
-    if !PARSEABLE.streams.stream_exists(&stream_name) {
+    if !PARSEABLE.streams.contains(&stream_name) {
         // For query mode, if the stream not found in memory map,
         //check if it exists in the storage
         //create stream and schema from storage
@@ -445,10 +450,10 @@ pub async fn put_stream_hot_tier(
                 .await
             {
                 Ok(true) => {}
-                Ok(false) | Err(_) => return Err(StreamError::StreamNotFound(stream_name.clone())),
+                Ok(false) | Err(_) => return Err(StreamNotFound(stream_name.clone()).into()),
             }
         } else {
-            return Err(StreamError::StreamNotFound(stream_name));
+            return Err(StreamNotFound(stream_name).into());
         }
     }
 
@@ -494,7 +499,7 @@ pub async fn put_stream_hot_tier(
 pub async fn get_stream_hot_tier(stream_name: Path<String>) -> Result<impl Responder, StreamError> {
     let stream_name = stream_name.into_inner();
 
-    if !PARSEABLE.streams.stream_exists(&stream_name) {
+    if !PARSEABLE.streams.contains(&stream_name) {
         // For query mode, if the stream not found in memory map,
         //check if it exists in the storage
         //create stream and schema from storage
@@ -504,10 +509,10 @@ pub async fn get_stream_hot_tier(stream_name: Path<String>) -> Result<impl Respo
                 .await
             {
                 Ok(true) => {}
-                Ok(false) | Err(_) => return Err(StreamError::StreamNotFound(stream_name.clone())),
+                Ok(false) | Err(_) => return Err(StreamNotFound(stream_name.clone()).into()),
             }
         } else {
-            return Err(StreamError::StreamNotFound(stream_name));
+            return Err(StreamNotFound(stream_name).into());
         }
     }
 
@@ -524,7 +529,7 @@ pub async fn delete_stream_hot_tier(
 ) -> Result<impl Responder, StreamError> {
     let stream_name = stream_name.into_inner();
 
-    if !PARSEABLE.streams.stream_exists(&stream_name) {
+    if !PARSEABLE.streams.contains(&stream_name) {
         // For query mode, if the stream not found in memory map,
         //check if it exists in the storage
         //create stream and schema from storage
@@ -534,10 +539,10 @@ pub async fn delete_stream_hot_tier(
                 .await
             {
                 Ok(true) => {}
-                Ok(false) | Err(_) => return Err(StreamError::StreamNotFound(stream_name.clone())),
+                Ok(false) | Err(_) => return Err(StreamNotFound(stream_name.clone()).into()),
             }
         } else {
-            return Err(StreamError::StreamNotFound(stream_name));
+            return Err(StreamNotFound(stream_name).into());
         }
     }
 
@@ -602,7 +607,7 @@ pub mod error {
 
     use crate::{
         hottier::HotTierError,
-        metadata::error::stream_info::MetadataError,
+        staging::StreamNotFound,
         storage::ObjectStorageError,
         validator::error::{
             AlertValidationError, HotTierValidationError, StreamNameValidationError,
@@ -631,8 +636,8 @@ pub mod error {
     pub enum StreamError {
         #[error("{0}")]
         CreateStream(#[from] CreateStreamError),
-        #[error("Log stream {0} does not exist")]
-        StreamNotFound(String),
+        #[error("{0}")]
+        StreamNotFound(#[from] StreamNotFound),
         #[error("Log stream is not initialized, send an event to this logstream and try again")]
         UninitializedLogstream,
         #[error("Storage Error {0}")]
@@ -712,18 +717,6 @@ pub mod error {
             actix_web::HttpResponse::build(self.status_code())
                 .insert_header(ContentType::plaintext())
                 .body(self.to_string())
-        }
-    }
-
-    impl From<MetadataError> for StreamError {
-        fn from(value: MetadataError) -> Self {
-            match value {
-                MetadataError::StreamMetaNotFound(s) => StreamError::StreamNotFound(s),
-                MetadataError::StandaloneWithDistributed(s) => StreamError::Custom {
-                    msg: s,
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                },
-            }
         }
     }
 }

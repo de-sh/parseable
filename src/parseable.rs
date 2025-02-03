@@ -35,10 +35,9 @@ use crate::{
         logstream::error::{CreateStreamError, StreamError},
         modal::utils::logstream_utils::PutStreamHeaders,
     },
-    metadata::{
-        error::stream_info::LoadError, LogStreamMetadata, SchemaVersion, StreamInfo, LOCK_EXPECT,
-    },
+    metadata::SchemaVersion,
     option::Mode,
+    staging::{StreamNotFound, Streams},
     static_schema::{convert_static_schema_to_arrow_schema, StaticSchema},
     storage::{
         object_storage::parseable_json_path, ObjectStorageError, ObjectStorageProvider,
@@ -46,6 +45,10 @@ use crate::{
     },
     validator,
 };
+
+/// Name of a Stream
+/// NOTE: this used to be a struct, flattened out for simplicity
+pub type LogStream = String;
 
 pub const JOIN_COMMUNITY: &str =
     "Join us on Parseable Slack community for questions : https://logg.ing/community";
@@ -82,7 +85,8 @@ pub struct Parseable {
     /// Storage engine backing parseable
     pub storage: Arc<dyn ObjectStorageProvider>,
     /// Metadata relating to logstreams
-    pub streams: StreamInfo,
+    /// A globally shared mapping of `Streams` that parseable is aware of.
+    pub streams: Streams,
 }
 
 impl Parseable {
@@ -90,7 +94,7 @@ impl Parseable {
         Parseable {
             options,
             storage,
-            streams: StreamInfo::default(),
+            streams: Streams::default(),
         }
     }
 
@@ -228,7 +232,7 @@ impl Parseable {
         log_source: LogSource,
     ) -> Result<bool, PostError> {
         let mut stream_exists = false;
-        if self.streams.stream_exists(stream_name) {
+        if self.streams.contains(stream_name) {
             stream_exists = true;
             return Ok(stream_exists);
         }
@@ -275,7 +279,7 @@ impl Parseable {
             log_source,
         } = headers.into();
 
-        if self.streams.stream_exists(stream_name) && !update_stream_flag {
+        if self.streams.contains(stream_name) && !update_stream_flag {
             return Err(StreamError::Custom {
                 msg: format!(
                     "Logstream {stream_name} already exists, please create a new log stream with unique name"
@@ -284,7 +288,7 @@ impl Parseable {
             });
         }
 
-        if !self.streams.stream_exists(stream_name)
+        if !self.streams.contains(stream_name)
             && self.options.mode == Mode::Query
             && self
                 .create_stream_and_schema_from_storage(stream_name)
@@ -371,8 +375,8 @@ impl Parseable {
         time_partition_limit: &str,
         custom_partition: Option<&String>,
     ) -> Result<HeaderMap, StreamError> {
-        if !self.streams.stream_exists(stream_name) {
-            return Err(StreamError::StreamNotFound(stream_name.to_string()));
+        if !self.streams.contains(stream_name) {
+            return Err(StreamNotFound(stream_name.to_string()).into());
         }
         if !time_partition.is_empty() {
             return Err(StreamError::Custom {
@@ -623,19 +627,6 @@ impl Parseable {
         }
 
         Some(first_event_at.to_string())
-    }
-
-    /// Stores the provided stream metadata in memory mapping
-    pub async fn set_stream_meta(
-        &self,
-        stream_name: &str,
-        metadata: LogStreamMetadata,
-    ) -> Result<(), LoadError> {
-        let mut map = self.streams.write().expect(LOCK_EXPECT);
-
-        map.insert(stream_name.to_string(), metadata);
-
-        Ok(())
     }
 }
 

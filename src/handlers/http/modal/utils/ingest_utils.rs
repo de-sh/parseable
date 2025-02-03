@@ -33,8 +33,10 @@ use crate::{
     },
     metadata::SchemaVersion,
     parseable::PARSEABLE,
+    staging::StreamNotFound,
     storage::StreamType,
     utils::json::{convert_array_to_object, flatten::convert_to_array},
+    LOCK_EXPECT,
 };
 
 pub async fn flatten_and_push_logs(
@@ -109,7 +111,10 @@ pub async fn push_logs(
             .read()
             .unwrap()
             .get(stream_name)
-            .ok_or(PostError::StreamNotFound(stream_name.to_owned()))?
+            .ok_or_else(|| StreamNotFound(stream_name.to_owned()))?
+            .metadata
+            .read()
+            .expect(LOCK_EXPECT)
             .schema
             .clone();
         let (rb, is_first_event) = into_event_batch(

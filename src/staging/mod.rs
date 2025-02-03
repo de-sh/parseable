@@ -17,8 +17,7 @@
  *
  */
 
-use once_cell::sync::Lazy;
-pub use streams::{Stream, Streams};
+pub use streams::{StreamNotFound, Streams};
 
 mod reader;
 mod streams;
@@ -35,7 +34,3 @@ pub enum StagingError {
     #[error("Could not generate parquet file")]
     Create,
 }
-
-/// Staging is made up of multiple streams, each stream's context is housed in a single `Stream` object.
-/// `STAGING` is a globally shared mapping of `Streams` that are in staging.
-pub static STAGING: Lazy<Streams> = Lazy::new(Streams::default);
