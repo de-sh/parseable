@@ -32,7 +32,7 @@ use crate::{
     },
     metadata::{self, SchemaVersion, STREAM_INFO},
     option::{Mode, CONFIG},
-    static_schema::{convert_static_schema_to_arrow_schema, StaticSchema},
+    static_schema::StaticSchema,
     storage::{ObjectStoreFormat, StreamType},
     validator,
 };
@@ -278,14 +278,12 @@ pub fn validate_static_schema(
         }
 
         let static_schema: StaticSchema = serde_json::from_slice(body)?;
-        let parsed_schema =
-            convert_static_schema_to_arrow_schema(static_schema, time_partition, custom_partition)
-                .map_err(|_| CreateStreamError::Custom {
-                    msg: format!(
-                        "Unable to commit static schema, logstream {stream_name} not created"
-                    ),
-                    status: StatusCode::BAD_REQUEST,
-                })?;
+        let parsed_schema = static_schema
+            .to_arrow_schema(time_partition, custom_partition)
+            .map_err(|_| CreateStreamError::Custom {
+                msg: format!("Unable to commit static schema, logstream {stream_name} not created"),
+                status: StatusCode::BAD_REQUEST,
+            })?;
 
         return Ok(parsed_schema);
     }
