@@ -24,7 +24,6 @@ use super::{
 };
 
 use crate::alerts::AlertConfig;
-use crate::correlation::{CorrelationConfig, CorrelationError};
 use crate::event::format::LogSource;
 use crate::handlers::http::modal::ingest_server::INGESTOR_META;
 use crate::handlers::http::users::{CORRELATION_DIR, DASHBOARDS_DIR, FILTER_DIR, USERS_ROOT_DIR};
@@ -32,6 +31,7 @@ use crate::metadata::SchemaVersion;
 use crate::metrics::{EVENTS_STORAGE_SIZE_DATE, LIFETIME_EVENTS_STORAGE_SIZE};
 use crate::option::Mode;
 use crate::staging::STAGING;
+use crate::users::correlations::{CorrelationConfig, CorrelationError};
 use crate::{
     catalog::{self, manifest::Manifest, snapshot::Snapshot},
     metadata::STREAM_INFO,

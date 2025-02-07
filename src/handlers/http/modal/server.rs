@@ -18,13 +18,13 @@
 
 use crate::alerts::ALERTS;
 use crate::analytics;
-use crate::correlation::CORRELATIONS;
 use crate::handlers;
 use crate::handlers::http::about;
 use crate::handlers::http::alerts;
 use crate::handlers::http::base_path;
 use crate::handlers::http::health_check;
 use crate::handlers::http::query;
+use crate::handlers::http::users::correlations;
 use crate::handlers::http::users::dashboards;
 use crate::handlers::http::users::filters;
 use crate::hottier::HotTierManager;
@@ -32,6 +32,7 @@ use crate::metrics;
 use crate::migration;
 use crate::storage;
 use crate::sync;
+use crate::users::correlations::CORRELATIONS;
 use crate::users::dashboards::DASHBOARDS;
 use crate::users::filters::FILTERS;
 
@@ -206,12 +207,12 @@ impl Server {
                 web::resource("")
                     .route(
                         web::get()
-                            .to(http::correlation::list)
+                            .to(correlations::list)
                             .authorize(Action::GetCorrelation),
                     )
                     .route(
                         web::post()
-                            .to(http::correlation::post)
+                            .to(correlations::post)
                             .authorize(Action::CreateCorrelation),
                     ),
             )
@@ -219,17 +220,17 @@ impl Server {
                 web::resource("/{correlation_id}")
                     .route(
                         web::get()
-                            .to(http::correlation::get)
+                            .to(correlations::get)
                             .authorize(Action::GetCorrelation),
                     )
                     .route(
                         web::put()
-                            .to(http::correlation::modify)
+                            .to(correlations::modify)
                             .authorize(Action::PutCorrelation),
                     )
                     .route(
                         web::delete()
-                            .to(http::correlation::delete)
+                            .to(correlations::delete)
                             .authorize(Action::DeleteCorrelation),
                     ),
             )

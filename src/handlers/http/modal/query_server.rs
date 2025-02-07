@@ -17,7 +17,6 @@
  */
 
 use crate::alerts::ALERTS;
-use crate::correlation::CORRELATIONS;
 use crate::handlers::airplane;
 use crate::handlers::http::base_path;
 use crate::handlers::http::cluster::{self, init_cluster_metrics_schedular};
@@ -28,6 +27,7 @@ use crate::handlers::http::{logstream, MAX_EVENT_PAYLOAD_SIZE};
 use crate::hottier::HotTierManager;
 use crate::rbac::role::Action;
 use crate::sync;
+use crate::users::correlations::CORRELATIONS;
 use crate::users::dashboards::DASHBOARDS;
 use crate::users::filters::FILTERS;
 use crate::{analytics, migration, storage};

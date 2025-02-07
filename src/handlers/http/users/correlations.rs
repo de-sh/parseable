@@ -22,10 +22,9 @@ use anyhow::Error;
 use itertools::Itertools;
 
 use crate::rbac::Users;
+use crate::users::correlations::{CorrelationConfig, CorrelationError, CORRELATIONS};
 use crate::utils::actix::extract_session_key_from_req;
 use crate::utils::{get_hash, get_user_from_request, user_auth_for_query};
-
-use crate::correlation::{CorrelationConfig, CorrelationError, CORRELATIONS};
 
 pub async fn list(req: HttpRequest) -> Result<impl Responder, CorrelationError> {
     let session_key = extract_session_key_from_req(&req)

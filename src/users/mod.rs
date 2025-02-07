@@ -16,6 +16,7 @@
  *
  */
 
+pub mod correlations;
 pub mod dashboards;
 pub mod filters;
 
