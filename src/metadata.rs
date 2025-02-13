@@ -25,10 +25,7 @@ use std::sync::Arc;
 
 use crate::catalog::snapshot::ManifestItem;
 use crate::event::format::LogSource;
-use crate::metrics::{
-    EVENTS_INGESTED, EVENTS_INGESTED_DATE, EVENTS_INGESTED_SIZE, EVENTS_INGESTED_SIZE_DATE,
-    EVENTS_STORAGE_SIZE_DATE, LIFETIME_EVENTS_INGESTED, LIFETIME_EVENTS_INGESTED_SIZE,
-};
+use crate::metrics::METRICS;
 use crate::storage::retention::Retention;
 use crate::storage::StreamType;
 
@@ -40,22 +37,28 @@ pub fn update_stats(
     parsed_timestamp: NaiveDateTime,
 ) {
     let parsed_date = parsed_timestamp.date().to_string();
-    EVENTS_INGESTED
+    METRICS
+        .events_ingested
         .with_label_values(&[stream_name, origin])
         .add(num_rows as i64);
-    EVENTS_INGESTED_DATE
+    METRICS
+        .events_ingested_date
         .with_label_values(&[stream_name, origin, parsed_date.as_str()])
         .add(num_rows as i64);
-    EVENTS_INGESTED_SIZE
+    METRICS
+        .events_ingested_size
         .with_label_values(&[stream_name, origin])
         .add(size as i64);
-    EVENTS_INGESTED_SIZE_DATE
+    METRICS
+        .events_ingested_size_date
         .with_label_values(&[stream_name, origin, parsed_date.as_str()])
         .add(size as i64);
-    LIFETIME_EVENTS_INGESTED
+    METRICS
+        .lifetime_events_ingested
         .with_label_values(&[stream_name, origin])
         .add(num_rows as i64);
-    LIFETIME_EVENTS_INGESTED_SIZE
+    METRICS
+        .lifetime_events_ingested_size
         .with_label_values(&[stream_name, origin])
         .add(size as i64);
 }
@@ -169,13 +172,16 @@ pub fn load_daily_metrics(manifests: &Vec<ManifestItem>, stream_name: &str) {
         let events_ingested = manifest.events_ingested;
         let ingestion_size = manifest.ingestion_size;
         let storage_size = manifest.storage_size;
-        EVENTS_INGESTED_DATE
+        METRICS
+            .events_ingested_date
             .with_label_values(&[stream_name, "json", &manifest_date])
             .set(events_ingested as i64);
-        EVENTS_INGESTED_SIZE_DATE
+        METRICS
+            .events_ingested_size_date
             .with_label_values(&[stream_name, "json", &manifest_date])
             .set(ingestion_size as i64);
-        EVENTS_STORAGE_SIZE_DATE
+        METRICS
+            .events_storage_size_date
             .with_label_values(&["data", stream_name, "parquet", &manifest_date])
             .set(storage_size as i64);
     }

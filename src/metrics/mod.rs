@@ -28,214 +28,227 @@ use prometheus::{HistogramOpts, HistogramVec, IntCounterVec, IntGaugeVec, Opts, 
 
 pub const METRICS_NAMESPACE: &str = env!("CARGO_PKG_NAME");
 
-pub static EVENTS_INGESTED: Lazy<IntGaugeVec> = Lazy::new(|| {
-    IntGaugeVec::new(
-        Opts::new("events_ingested", "Events ingested").namespace(METRICS_NAMESPACE),
-        &["stream", "format"],
-    )
-    .expect("metric can be created")
-});
+pub static METRICS: Lazy<Metrics> = Lazy::new(Metrics::new);
 
-pub static EVENTS_INGESTED_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
-    IntGaugeVec::new(
-        Opts::new("events_ingested_size", "Events ingested size bytes")
-            .namespace(METRICS_NAMESPACE),
-        &["stream", "format"],
-    )
-    .expect("metric can be created")
-});
+pub struct Metrics {
+    pub events_ingested: IntGaugeVec,
+    pub events_ingested_size: IntGaugeVec,
+    pub storage_size: IntGaugeVec,
+    pub events_deleted: IntGaugeVec,
+    pub events_deleted_size: IntGaugeVec,
+    pub deleted_events_storage_size: IntGaugeVec,
+    pub lifetime_events_ingested: IntGaugeVec,
+    pub lifetime_events_ingested_size: IntGaugeVec,
+    pub lifetime_events_storage_size: IntGaugeVec,
+    pub events_ingested_date: IntGaugeVec,
+    pub events_ingested_size_date: IntGaugeVec,
+    pub events_storage_size_date: IntGaugeVec,
+    pub staging_files: IntGaugeVec,
+    pub query_execute_time: HistogramVec,
+    pub query_cache_hit: IntCounterVec,
+    pub alerts_states: IntCounterVec,
+}
 
-pub static STORAGE_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
-    IntGaugeVec::new(
-        Opts::new("storage_size", "Storage size bytes").namespace(METRICS_NAMESPACE),
-        &["type", "stream", "format"],
-    )
-    .expect("metric can be created")
-});
+impl Metrics {
+    pub fn new() -> Self {
+        Self {
+            events_ingested: IntGaugeVec::new(
+                Opts::new("events_ingested", "Events ingested").namespace(METRICS_NAMESPACE),
+                &["stream", "format"],
+            )
+            .expect("metric can be created"),
+            events_ingested_size: IntGaugeVec::new(
+                Opts::new("events_ingested_size", "Events ingested size bytes")
+                    .namespace(METRICS_NAMESPACE),
+                &["stream", "format"],
+            )
+            .expect("metric can be created"),
+            storage_size: IntGaugeVec::new(
+                Opts::new("storage_size", "Storage size bytes").namespace(METRICS_NAMESPACE),
+                &["type", "stream", "format"],
+            )
+            .expect("metric can be created"),
+            events_deleted: IntGaugeVec::new(
+                Opts::new("events_deleted", "Events deleted").namespace(METRICS_NAMESPACE),
+                &["stream", "format"],
+            )
+            .expect("metric can be created"),
+            events_deleted_size: IntGaugeVec::new(
+                Opts::new("events_deleted_size", "Events deleted size bytes")
+                    .namespace(METRICS_NAMESPACE),
+                &["stream", "format"],
+            )
+            .expect("metric can be created"),
+            deleted_events_storage_size: IntGaugeVec::new(
+                Opts::new(
+                    "deleted_events_storage_size",
+                    "Deleted events storage size bytes",
+                )
+                .namespace(METRICS_NAMESPACE),
+                &["type", "stream", "format"],
+            )
+            .expect("metric can be created"),
+            lifetime_events_ingested: IntGaugeVec::new(
+                Opts::new("lifetime_events_ingested", "Lifetime events ingested")
+                    .namespace(METRICS_NAMESPACE),
+                &["stream", "format"],
+            )
+            .expect("metric can be created"),
+            lifetime_events_ingested_size: IntGaugeVec::new(
+                Opts::new(
+                    "lifetime_events_ingested_size",
+                    "Lifetime events ingested size bytes",
+                )
+                .namespace(METRICS_NAMESPACE),
+                &["stream", "format"],
+            )
+            .expect("metric can be created"),
+            lifetime_events_storage_size: IntGaugeVec::new(
+                Opts::new(
+                    "lifetime_events_storage_size",
+                    "Lifetime events storage size bytes",
+                )
+                .namespace(METRICS_NAMESPACE),
+                &["type", "stream", "format"],
+            )
+            .expect("metric can be created"),
+            events_ingested_date: IntGaugeVec::new(
+                Opts::new(
+                    "events_ingested_date",
+                    "Events ingested on a particular date",
+                )
+                .namespace(METRICS_NAMESPACE),
+                &["stream", "format", "date"],
+            )
+            .expect("metric can be created"),
+            events_ingested_size_date: IntGaugeVec::new(
+                Opts::new(
+                    "events_ingested_size_date",
+                    "Events ingested size in bytes on a particular date",
+                )
+                .namespace(METRICS_NAMESPACE),
+                &["stream", "format", "date"],
+            )
+            .expect("metric can be created"),
+            events_storage_size_date: IntGaugeVec::new(
+                Opts::new(
+                    "events_storage_size_date",
+                    "Events storage size in bytes on a particular date",
+                )
+                .namespace(METRICS_NAMESPACE),
+                &["type", "stream", "format", "date"],
+            )
+            .expect("metric can be created"),
+            staging_files: IntGaugeVec::new(
+                Opts::new("staging_files", "Active Staging files").namespace(METRICS_NAMESPACE),
+                &["stream"],
+            )
+            .expect("metric can be created"),
+            query_execute_time: HistogramVec::new(
+                HistogramOpts::new("query_execute_time", "Query execute time")
+                    .namespace(METRICS_NAMESPACE),
+                &["stream"],
+            )
+            .expect("metric can be created"),
+            query_cache_hit: IntCounterVec::new(
+                Opts::new("QUERY_CACHE_HIT", "Full Cache hit").namespace(METRICS_NAMESPACE),
+                &["stream"],
+            )
+            .expect("metric can be created"),
+            alerts_states: IntCounterVec::new(
+                Opts::new("alerts_states", "Alerts States").namespace(METRICS_NAMESPACE),
+                &["stream", "name", "state"],
+            )
+            .expect("metric can be created"),
+        }
+    }
 
-pub static EVENTS_DELETED: Lazy<IntGaugeVec> = Lazy::new(|| {
-    IntGaugeVec::new(
-        Opts::new("events_deleted", "Events deleted").namespace(METRICS_NAMESPACE),
-        &["stream", "format"],
-    )
-    .expect("metric can be created")
-});
+    pub fn register(&self, registry: &Registry) {
+        registry
+            .register(Box::new(self.events_ingested.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(self.events_ingested_size.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(self.storage_size.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(self.events_deleted.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(self.events_deleted_size.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(self.deleted_events_storage_size.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(self.lifetime_events_ingested.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(self.lifetime_events_ingested_size.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(self.lifetime_events_storage_size.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(self.events_ingested_date.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(self.events_ingested_size_date.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(self.events_storage_size_date.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(self.staging_files.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(self.query_execute_time.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(self.query_cache_hit.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(self.alerts_states.clone()))
+            .expect("metric can be registered");
+    }
 
-pub static EVENTS_DELETED_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
-    IntGaugeVec::new(
-        Opts::new("events_deleted_size", "Events deleted size bytes").namespace(METRICS_NAMESPACE),
-        &["stream", "format"],
-    )
-    .expect("metric can be created")
-});
+    pub async fn fetch_from_storage(&self, stream_name: &str, stats: FullStats) {
+        self.events_ingested
+            .with_label_values(&[stream_name, "json"])
+            .set(stats.current_stats.events as i64);
+        self.events_ingested_size
+            .with_label_values(&[stream_name, "json"])
+            .set(stats.current_stats.ingestion as i64);
+        self.storage_size
+            .with_label_values(&["data", stream_name, "parquet"])
+            .set(stats.current_stats.storage as i64);
+        self.events_deleted
+            .with_label_values(&[stream_name, "json"])
+            .set(stats.deleted_stats.events as i64);
+        self.events_deleted_size
+            .with_label_values(&[stream_name, "json"])
+            .set(stats.deleted_stats.ingestion as i64);
+        self.deleted_events_storage_size
+            .with_label_values(&["data", stream_name, "parquet"])
+            .set(stats.deleted_stats.storage as i64);
 
-pub static DELETED_EVENTS_STORAGE_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
-    IntGaugeVec::new(
-        Opts::new(
-            "deleted_events_storage_size",
-            "Deleted events storage size bytes",
-        )
-        .namespace(METRICS_NAMESPACE),
-        &["type", "stream", "format"],
-    )
-    .expect("metric can be created")
-});
-
-pub static LIFETIME_EVENTS_INGESTED: Lazy<IntGaugeVec> = Lazy::new(|| {
-    IntGaugeVec::new(
-        Opts::new("lifetime_events_ingested", "Lifetime events ingested")
-            .namespace(METRICS_NAMESPACE),
-        &["stream", "format"],
-    )
-    .expect("metric can be created")
-});
-
-pub static LIFETIME_EVENTS_INGESTED_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
-    IntGaugeVec::new(
-        Opts::new(
-            "lifetime_events_ingested_size",
-            "Lifetime events ingested size bytes",
-        )
-        .namespace(METRICS_NAMESPACE),
-        &["stream", "format"],
-    )
-    .expect("metric can be created")
-});
-
-pub static LIFETIME_EVENTS_STORAGE_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
-    IntGaugeVec::new(
-        Opts::new(
-            "lifetime_events_storage_size",
-            "Lifetime events storage size bytes",
-        )
-        .namespace(METRICS_NAMESPACE),
-        &["type", "stream", "format"],
-    )
-    .expect("metric can be created")
-});
-
-pub static EVENTS_INGESTED_DATE: Lazy<IntGaugeVec> = Lazy::new(|| {
-    IntGaugeVec::new(
-        Opts::new(
-            "events_ingested_date",
-            "Events ingested on a particular date",
-        )
-        .namespace(METRICS_NAMESPACE),
-        &["stream", "format", "date"],
-    )
-    .expect("metric can be created")
-});
-
-pub static EVENTS_INGESTED_SIZE_DATE: Lazy<IntGaugeVec> = Lazy::new(|| {
-    IntGaugeVec::new(
-        Opts::new(
-            "events_ingested_size_date",
-            "Events ingested size in bytes on a particular date",
-        )
-        .namespace(METRICS_NAMESPACE),
-        &["stream", "format", "date"],
-    )
-    .expect("metric can be created")
-});
-
-pub static EVENTS_STORAGE_SIZE_DATE: Lazy<IntGaugeVec> = Lazy::new(|| {
-    IntGaugeVec::new(
-        Opts::new(
-            "events_storage_size_date",
-            "Events storage size in bytes on a particular date",
-        )
-        .namespace(METRICS_NAMESPACE),
-        &["type", "stream", "format", "date"],
-    )
-    .expect("metric can be created")
-});
-
-pub static STAGING_FILES: Lazy<IntGaugeVec> = Lazy::new(|| {
-    IntGaugeVec::new(
-        Opts::new("staging_files", "Active Staging files").namespace(METRICS_NAMESPACE),
-        &["stream"],
-    )
-    .expect("metric can be created")
-});
-
-pub static QUERY_EXECUTE_TIME: Lazy<HistogramVec> = Lazy::new(|| {
-    HistogramVec::new(
-        HistogramOpts::new("query_execute_time", "Query execute time").namespace(METRICS_NAMESPACE),
-        &["stream"],
-    )
-    .expect("metric can be created")
-});
-
-pub static QUERY_CACHE_HIT: Lazy<IntCounterVec> = Lazy::new(|| {
-    IntCounterVec::new(
-        Opts::new("QUERY_CACHE_HIT", "Full Cache hit").namespace(METRICS_NAMESPACE),
-        &["stream"],
-    )
-    .expect("metric can be created")
-});
-
-pub static ALERTS_STATES: Lazy<IntCounterVec> = Lazy::new(|| {
-    IntCounterVec::new(
-        Opts::new("alerts_states", "Alerts States").namespace(METRICS_NAMESPACE),
-        &["stream", "name", "state"],
-    )
-    .expect("metric can be created")
-});
-
-fn custom_metrics(registry: &Registry) {
-    registry
-        .register(Box::new(EVENTS_INGESTED.clone()))
-        .expect("metric can be registered");
-    registry
-        .register(Box::new(EVENTS_INGESTED_SIZE.clone()))
-        .expect("metric can be registered");
-    registry
-        .register(Box::new(STORAGE_SIZE.clone()))
-        .expect("metric can be registered");
-    registry
-        .register(Box::new(EVENTS_DELETED.clone()))
-        .expect("metric can be registered");
-    registry
-        .register(Box::new(EVENTS_DELETED_SIZE.clone()))
-        .expect("metric can be registered");
-    registry
-        .register(Box::new(DELETED_EVENTS_STORAGE_SIZE.clone()))
-        .expect("metric can be registered");
-    registry
-        .register(Box::new(LIFETIME_EVENTS_INGESTED.clone()))
-        .expect("metric can be registered");
-    registry
-        .register(Box::new(LIFETIME_EVENTS_INGESTED_SIZE.clone()))
-        .expect("metric can be registered");
-    registry
-        .register(Box::new(LIFETIME_EVENTS_STORAGE_SIZE.clone()))
-        .expect("metric can be registered");
-    registry
-        .register(Box::new(EVENTS_INGESTED_DATE.clone()))
-        .expect("metric can be registered");
-    registry
-        .register(Box::new(EVENTS_INGESTED_SIZE_DATE.clone()))
-        .expect("metric can be registered");
-    registry
-        .register(Box::new(EVENTS_STORAGE_SIZE_DATE.clone()))
-        .expect("metric can be registered");
-    registry
-        .register(Box::new(STAGING_FILES.clone()))
-        .expect("metric can be registered");
-    registry
-        .register(Box::new(QUERY_EXECUTE_TIME.clone()))
-        .expect("metric can be registered");
-    registry
-        .register(Box::new(QUERY_CACHE_HIT.clone()))
-        .expect("metric can be registered");
-    registry
-        .register(Box::new(ALERTS_STATES.clone()))
-        .expect("metric can be registered");
+        self.lifetime_events_ingested
+            .with_label_values(&[stream_name, "json"])
+            .set(stats.lifetime_stats.events as i64);
+        self.lifetime_events_ingested_size
+            .with_label_values(&[stream_name, "json"])
+            .set(stats.lifetime_stats.ingestion as i64);
+        self.lifetime_events_storage_size
+            .with_label_values(&["data", stream_name, "parquet"])
+            .set(stats.lifetime_stats.storage as i64);
+    }
 }
 
 pub fn build_metrics_handler() -> PrometheusMetrics {
     let registry = prometheus::Registry::new();
-    custom_metrics(&registry);
+    METRICS.register(&registry);
 
     let prometheus = PrometheusMetricsBuilder::new(METRICS_NAMESPACE)
         .registry(registry)
@@ -258,37 +271,6 @@ fn prom_process_metrics(metrics: &PrometheusMetrics) {
 
 #[cfg(not(target_os = "linux"))]
 fn prom_process_metrics(_metrics: &PrometheusMetrics) {}
-
-pub async fn fetch_stats_from_storage(stream_name: &str, stats: FullStats) {
-    EVENTS_INGESTED
-        .with_label_values(&[stream_name, "json"])
-        .set(stats.current_stats.events as i64);
-    EVENTS_INGESTED_SIZE
-        .with_label_values(&[stream_name, "json"])
-        .set(stats.current_stats.ingestion as i64);
-    STORAGE_SIZE
-        .with_label_values(&["data", stream_name, "parquet"])
-        .set(stats.current_stats.storage as i64);
-    EVENTS_DELETED
-        .with_label_values(&[stream_name, "json"])
-        .set(stats.deleted_stats.events as i64);
-    EVENTS_DELETED_SIZE
-        .with_label_values(&[stream_name, "json"])
-        .set(stats.deleted_stats.ingestion as i64);
-    DELETED_EVENTS_STORAGE_SIZE
-        .with_label_values(&["data", stream_name, "parquet"])
-        .set(stats.deleted_stats.storage as i64);
-
-    LIFETIME_EVENTS_INGESTED
-        .with_label_values(&[stream_name, "json"])
-        .set(stats.lifetime_stats.events as i64);
-    LIFETIME_EVENTS_INGESTED_SIZE
-        .with_label_values(&[stream_name, "json"])
-        .set(stats.lifetime_stats.ingestion as i64);
-    LIFETIME_EVENTS_STORAGE_SIZE
-        .with_label_values(&["data", stream_name, "parquet"])
-        .set(stats.lifetime_stats.storage as i64);
-}
 
 use actix_web::HttpResponse;
 

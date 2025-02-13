@@ -65,7 +65,7 @@ use crate::{
         self, column::TypedStatistics, manifest::Manifest, snapshot::ManifestItem, ManifestFile,
     },
     event::DEFAULT_TIMESTAMP_KEY,
-    metrics::QUERY_CACHE_HIT,
+    metrics::METRICS,
     parseable::PARSEABLE,
     storage::ObjectStorage,
 };
@@ -530,7 +530,7 @@ impl TableProvider for StandardTableProvider {
             }
         }
         if manifest_files.is_empty() {
-            QUERY_CACHE_HIT.with_label_values(&[&self.stream]).inc();
+            METRICS.query_cache_hit.with_label_values(&[&self.stream]).inc();
             return self.final_plan(execution_plans, projection);
         }
 

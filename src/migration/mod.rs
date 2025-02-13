@@ -31,7 +31,7 @@ use serde_json::Value;
 
 use crate::{
     metadata::{load_daily_metrics, update_data_type_time_partition, LogStreamMetadata},
-    metrics::fetch_stats_from_storage,
+    metrics::METRICS,
     option::Mode,
     parseable::{Parseable, PARSEABLE},
     storage::{
@@ -286,7 +286,7 @@ async fn migration_stream(
     update_data_type_time_partition(&mut arrow_schema, time_partition.as_ref()).await?;
     storage.put_schema(stream, &arrow_schema).await?;
     //load stats from storage
-    fetch_stats_from_storage(stream, stats).await;
+    METRICS.fetch_from_storage(stream, stats).await;
     load_daily_metrics(&snapshot.manifest_list, stream);
 
     let schema = PARSEABLE

@@ -37,7 +37,7 @@ use crate::event::error::EventError;
 use crate::handlers::http::fetch_schema;
 
 use crate::event::commit_schema;
-use crate::metrics::QUERY_EXECUTE_TIME;
+use crate::metrics::METRICS;
 use crate::option::Mode;
 use crate::parseable::PARSEABLE;
 use crate::query::error::ExecuteError;
@@ -124,7 +124,8 @@ pub async fn query(req: HttpRequest, query_request: Query) -> Result<HttpRespons
 
         let time = time.elapsed().as_secs_f64();
 
-        QUERY_EXECUTE_TIME
+        METRICS
+            .query_execute_time
             .with_label_values(&[&table_name])
             .observe(time);
 
@@ -142,7 +143,8 @@ pub async fn query(req: HttpRequest, query_request: Query) -> Result<HttpRespons
 
     let time = time.elapsed().as_secs_f64();
 
-    QUERY_EXECUTE_TIME
+    METRICS
+        .query_execute_time
         .with_label_values(&[&table_name])
         .observe(time);
 

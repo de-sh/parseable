@@ -17,12 +17,7 @@ use tracing::warn;
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  */
-use crate::metrics::{
-    DELETED_EVENTS_STORAGE_SIZE, EVENTS_DELETED, EVENTS_DELETED_SIZE, EVENTS_INGESTED,
-    EVENTS_INGESTED_DATE, EVENTS_INGESTED_SIZE, EVENTS_INGESTED_SIZE_DATE,
-    EVENTS_STORAGE_SIZE_DATE, LIFETIME_EVENTS_INGESTED, LIFETIME_EVENTS_INGESTED_SIZE,
-    LIFETIME_EVENTS_STORAGE_SIZE, STORAGE_SIZE,
-};
+use crate::metrics::METRICS;
 use crate::storage::{ObjectStorage, ObjectStorageError, ObjectStoreFormat};
 use std::sync::Arc;
 
@@ -45,39 +40,48 @@ pub fn get_current_stats(stream_name: &str, format: &'static str) -> Option<Full
     let event_labels = event_labels(stream_name, format);
     let storage_size_labels = storage_size_labels(stream_name);
 
-    let events_ingested = EVENTS_INGESTED
+    let events_ingested = METRICS
+        .events_ingested
         .get_metric_with_label_values(&event_labels)
         .ok()?
         .get() as u64;
-    let ingestion_size = EVENTS_INGESTED_SIZE
+    let ingestion_size = METRICS
+        .events_ingested_size
         .get_metric_with_label_values(&event_labels)
         .ok()?
         .get() as u64;
-    let storage_size = STORAGE_SIZE
+    let storage_size = METRICS
+        .storage_size
         .get_metric_with_label_values(&storage_size_labels)
         .ok()?
         .get() as u64;
-    let events_deleted = EVENTS_DELETED
+    let events_deleted = METRICS
+        .events_deleted
         .get_metric_with_label_values(&event_labels)
         .ok()?
         .get() as u64;
-    let events_deleted_size = EVENTS_DELETED_SIZE
+    let events_deleted_size = METRICS
+        .events_deleted_size
         .get_metric_with_label_values(&event_labels)
         .ok()?
         .get() as u64;
-    let deleted_events_storage_size = DELETED_EVENTS_STORAGE_SIZE
+    let deleted_events_storage_size = METRICS
+        .deleted_events_storage_size
         .get_metric_with_label_values(&storage_size_labels)
         .ok()?
         .get() as u64;
-    let lifetime_events_ingested = LIFETIME_EVENTS_INGESTED
+    let lifetime_events_ingested = METRICS
+        .lifetime_events_ingested
         .get_metric_with_label_values(&event_labels)
         .ok()?
         .get() as u64;
-    let lifetime_ingestion_size = LIFETIME_EVENTS_INGESTED_SIZE
+    let lifetime_ingestion_size = METRICS
+        .lifetime_events_ingested_size
         .get_metric_with_label_values(&event_labels)
         .ok()?
         .get() as u64;
-    let lifetime_events_storage_size = LIFETIME_EVENTS_STORAGE_SIZE
+    let lifetime_events_storage_size = METRICS
+        .lifetime_events_storage_size
         .get_metric_with_label_values(&storage_size_labels)
         .ok()?
         .get() as u64;
@@ -116,14 +120,17 @@ pub async fn update_deleted_stats(
     if !manifests.is_empty() {
         for manifest in manifests {
             let manifest_date = manifest.time_lower_bound.date_naive().to_string();
-            let _ =
-                EVENTS_INGESTED_DATE.remove_label_values(&[stream_name, "json", &manifest_date]);
-            let _ = EVENTS_INGESTED_SIZE_DATE.remove_label_values(&[
+            let _ = METRICS.events_ingested_date.remove_label_values(&[
                 stream_name,
                 "json",
                 &manifest_date,
             ]);
-            let _ = EVENTS_STORAGE_SIZE_DATE.remove_label_values(&[
+            let _ = METRICS.events_ingested_size_date.remove_label_values(&[
+                stream_name,
+                "json",
+                &manifest_date,
+            ]);
+            let _ = METRICS.events_storage_size_date.remove_label_values(&[
                 "data",
                 stream_name,
                 "parquet",
@@ -134,22 +141,28 @@ pub async fn update_deleted_stats(
             storage_size += manifest.storage_size as i64;
         }
     }
-    EVENTS_DELETED
+    METRICS
+        .events_deleted
         .with_label_values(&[stream_name, "json"])
         .add(num_row);
-    EVENTS_DELETED_SIZE
+    METRICS
+        .events_deleted_size
         .with_label_values(&[stream_name, "json"])
         .add(ingestion_size);
-    DELETED_EVENTS_STORAGE_SIZE
+    METRICS
+        .deleted_events_storage_size
         .with_label_values(&["data", stream_name, "parquet"])
         .add(storage_size);
-    EVENTS_INGESTED
+    METRICS
+        .events_ingested
         .with_label_values(&[stream_name, "json"])
         .sub(num_row);
-    EVENTS_INGESTED_SIZE
+    METRICS
+        .events_ingested_size
         .with_label_values(&[stream_name, "json"])
         .sub(ingestion_size);
-    STORAGE_SIZE
+    METRICS
+        .storage_size
         .with_label_values(&["data", stream_name, "parquet"])
         .sub(storage_size);
     let stats = get_current_stats(stream_name, "json");
@@ -166,19 +179,39 @@ pub fn delete_stats(stream_name: &str, format: &'static str) -> prometheus::Resu
     let event_labels = event_labels(stream_name, format);
     let storage_size_labels = storage_size_labels(stream_name);
 
-    EVENTS_INGESTED.remove_label_values(&event_labels)?;
-    EVENTS_INGESTED_SIZE.remove_label_values(&event_labels)?;
-    STORAGE_SIZE.remove_label_values(&storage_size_labels)?;
-    EVENTS_DELETED.remove_label_values(&event_labels)?;
-    EVENTS_DELETED_SIZE.remove_label_values(&event_labels)?;
-    DELETED_EVENTS_STORAGE_SIZE.remove_label_values(&storage_size_labels)?;
-    LIFETIME_EVENTS_INGESTED.remove_label_values(&event_labels)?;
-    LIFETIME_EVENTS_INGESTED_SIZE.remove_label_values(&event_labels)?;
-    LIFETIME_EVENTS_STORAGE_SIZE.remove_label_values(&storage_size_labels)?;
+    METRICS.events_ingested.remove_label_values(&event_labels)?;
+    METRICS
+        .events_ingested_size
+        .remove_label_values(&event_labels)?;
+    METRICS
+        .storage_size
+        .remove_label_values(&storage_size_labels)?;
+    METRICS.events_deleted.remove_label_values(&event_labels)?;
+    METRICS
+        .events_deleted_size
+        .remove_label_values(&event_labels)?;
+    METRICS
+        .deleted_events_storage_size
+        .remove_label_values(&storage_size_labels)?;
+    METRICS
+        .lifetime_events_ingested
+        .remove_label_values(&event_labels)?;
+    METRICS
+        .lifetime_events_ingested_size
+        .remove_label_values(&event_labels)?;
+    METRICS
+        .lifetime_events_storage_size
+        .remove_label_values(&storage_size_labels)?;
 
-    EVENTS_INGESTED_DATE.remove_label_values(&event_labels)?;
-    EVENTS_INGESTED_SIZE_DATE.remove_label_values(&event_labels)?;
-    EVENTS_STORAGE_SIZE_DATE.remove_label_values(&storage_size_labels)?;
+    METRICS
+        .events_ingested_date
+        .remove_label_values(&event_labels)?;
+    METRICS
+        .events_ingested_size_date
+        .remove_label_values(&event_labels)?;
+    METRICS
+        .events_storage_size_date
+        .remove_label_values(&storage_size_labels)?;
 
     Ok(())
 }

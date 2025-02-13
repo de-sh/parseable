@@ -47,7 +47,7 @@ use crate::{
     cli::Options,
     event::DEFAULT_TIMESTAMP_KEY,
     metadata::{LogStreamMetadata, SchemaVersion},
-    metrics,
+    metrics::METRICS,
     option::Mode,
     storage::{
         object_storage::to_bytes, retention::Retention, StreamType, OBJECT_STORE_DATA_GRANULARITY,
@@ -433,20 +433,24 @@ impl Stream {
         let time = chrono::Utc::now().naive_utc();
         let staging_files = self.arrow_files_grouped_exclude_time(time, shutdown_signal);
         if staging_files.is_empty() {
-            metrics::STAGING_FILES
+            METRICS
+                .staging_files
                 .with_label_values(&[&self.stream_name])
                 .set(0);
-            metrics::STORAGE_SIZE
+            METRICS
+                .storage_size
                 .with_label_values(&["staging", &self.stream_name, "arrows"])
                 .set(0);
-            metrics::STORAGE_SIZE
+            METRICS
+                .storage_size
                 .with_label_values(&["staging", &self.stream_name, "parquet"])
                 .set(0);
         }
 
         // warn!("staging files-\n{staging_files:?}\n");
         for (parquet_path, arrow_files) in staging_files {
-            metrics::STAGING_FILES
+            METRICS
+                .staging_files
                 .with_label_values(&[&self.stream_name])
                 .set(arrow_files.len() as i64);
 
@@ -454,7 +458,8 @@ impl Stream {
                 let file_size = file.metadata().unwrap().len();
                 let file_type = file.extension().unwrap().to_str().unwrap();
 
-                metrics::STORAGE_SIZE
+                METRICS
+                    .storage_size
                     .with_label_values(&["staging", &self.stream_name, file_type])
                     .add(file_size as i64);
             }
@@ -502,7 +507,8 @@ impl Stream {
                         error!("Failed to delete file. Unstable state");
                         process::abort()
                     }
-                    metrics::STORAGE_SIZE
+                    METRICS
+                        .storage_size
                         .with_label_values(&["staging", &self.stream_name, file_type])
                         .sub(file_size as i64);
                 }
@@ -925,14 +931,16 @@ mod tests {
         )
         .convert_disk_files_to_parquet(None, None, false)?;
         assert!(result.is_none());
-        // Verify metrics were set to 0
-        let staging_files = metrics::STAGING_FILES.with_label_values(&[&stream]).get();
+        // Verify METRICS.ere set to 0
+        let staging_files = METRICS.staging_files.with_label_values(&[&stream]).get();
         assert_eq!(staging_files, 0);
-        let storage_size_arrows = metrics::STORAGE_SIZE
+        let storage_size_arrows = METRICS
+            .storage_size
             .with_label_values(&["staging", &stream, "arrows"])
             .get();
         assert_eq!(storage_size_arrows, 0);
-        let storage_size_parquet = metrics::STORAGE_SIZE
+        let storage_size_parquet = METRICS
+            .storage_size
             .with_label_values(&["staging", &stream, "parquet"])
             .get();
         assert_eq!(storage_size_parquet, 0);

@@ -22,7 +22,7 @@ use super::query::update_schema_when_distributed;
 use crate::event::format::override_data_type;
 use crate::hottier::{HotTierManager, StreamHotTier, CURRENT_HOT_TIER_VERSION};
 use crate::metadata::SchemaVersion;
-use crate::metrics::{EVENTS_INGESTED_DATE, EVENTS_INGESTED_SIZE_DATE, EVENTS_STORAGE_SIZE_DATE};
+use crate::metrics::METRICS;
 use crate::option::Mode;
 use crate::parseable::{StreamNotFound, PARSEABLE};
 use crate::rbac::role::Action;
@@ -223,15 +223,18 @@ pub async fn put_retention(
 pub async fn get_stats_date(stream_name: &str, date: &str) -> Result<Stats, StreamError> {
     let event_labels = event_labels_date(stream_name, "json", date);
     let storage_size_labels = storage_size_labels_date(stream_name, date);
-    let events_ingested = EVENTS_INGESTED_DATE
+    let events_ingested = METRICS
+        .events_ingested_date
         .get_metric_with_label_values(&event_labels)
         .unwrap()
         .get() as u64;
-    let ingestion_size = EVENTS_INGESTED_SIZE_DATE
+    let ingestion_size = METRICS
+        .events_ingested_size_date
         .get_metric_with_label_values(&event_labels)
         .unwrap()
         .get() as u64;
-    let storage_size = EVENTS_STORAGE_SIZE_DATE
+    let storage_size = METRICS
+        .events_storage_size_date
         .get_metric_with_label_values(&storage_size_labels)
         .unwrap()
         .get() as u64;

@@ -26,12 +26,11 @@ use crate::alerts::AlertConfig;
 use crate::correlation::{CorrelationConfig, CorrelationError};
 use crate::handlers::http::modal::ingest_server::INGESTOR_EXPECT;
 use crate::handlers::http::users::{CORRELATION_DIR, DASHBOARDS_DIR, FILTER_DIR, USERS_ROOT_DIR};
-use crate::metrics::{EVENTS_STORAGE_SIZE_DATE, LIFETIME_EVENTS_STORAGE_SIZE};
+use crate::metrics::{storage::StorageMetrics, METRICS};
 use crate::option::Mode;
 use crate::parseable::LogStream;
 use crate::{
     catalog::{self, manifest::Manifest, snapshot::Snapshot},
-    metrics::{storage::StorageMetrics, STORAGE_SIZE},
     parseable::PARSEABLE,
     stats::FullStats,
 };
@@ -665,13 +664,16 @@ pub trait ObjectStorage: Debug + Send + Sync + 'static {
                 let mut file_date_part = filename.split('.').collect::<Vec<&str>>()[0];
                 file_date_part = file_date_part.split('=').collect::<Vec<&str>>()[1];
                 let compressed_size = file.metadata().map_or(0, |meta| meta.len());
-                STORAGE_SIZE
+                METRICS
+                    .storage_size
                     .with_label_values(&["data", &stream_name, "parquet"])
                     .add(compressed_size as i64);
-                EVENTS_STORAGE_SIZE_DATE
+                METRICS
+                    .events_storage_size_date
                     .with_label_values(&["data", &stream_name, "parquet", file_date_part])
                     .add(compressed_size as i64);
-                LIFETIME_EVENTS_STORAGE_SIZE
+                METRICS
+                    .lifetime_events_storage_size
                     .with_label_values(&["data", &stream_name, "parquet"])
                     .add(compressed_size as i64);
                 let mut file_suffix = str::replacen(filename, ".", "/", 3);

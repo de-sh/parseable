@@ -36,7 +36,7 @@ use tonic_web::GrpcWebLayer;
 use crate::handlers::http::cluster::get_ingestor_info;
 use crate::handlers::http::query::{into_query, update_schema_when_distributed};
 use crate::handlers::livetail::cross_origin_config;
-use crate::metrics::QUERY_EXECUTE_TIME;
+use crate::metrics::METRICS;
 use crate::parseable::PARSEABLE;
 use crate::query::{TableScanVisitor, QUERY_SESSION};
 use crate::utils::arrow::flight::{
@@ -240,7 +240,8 @@ impl FlightService for AirServiceImpl {
         }
 
         let time = time.elapsed().as_secs_f64();
-        QUERY_EXECUTE_TIME
+        METRICS
+            .query_execute_time
             .with_label_values(&[&format!("flight-query-{}", stream_name)])
             .observe(time);
 

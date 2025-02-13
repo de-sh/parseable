@@ -29,7 +29,7 @@ use tracing::{error, info};
 use crate::{
     event::DEFAULT_TIMESTAMP_KEY,
     handlers::{self, http::base_path_without_preceding_slash},
-    metrics::{EVENTS_INGESTED_DATE, EVENTS_INGESTED_SIZE_DATE, EVENTS_STORAGE_SIZE_DATE},
+    metrics::METRICS,
     option::Mode,
     parseable::PARSEABLE,
     query::PartialTimeFilter,
@@ -122,15 +122,18 @@ pub async fn update_snapshot(
     let date = lower_bound.date_naive().format("%Y-%m-%d").to_string();
     let event_labels = event_labels_date(stream_name, "json", &date);
     let storage_size_labels = storage_size_labels_date(stream_name, &date);
-    let events_ingested = EVENTS_INGESTED_DATE
+    let events_ingested = METRICS
+        .events_ingested_date
         .get_metric_with_label_values(&event_labels)
         .unwrap()
         .get() as u64;
-    let ingestion_size = EVENTS_INGESTED_SIZE_DATE
+    let ingestion_size = METRICS
+        .events_ingested_size_date
         .get_metric_with_label_values(&event_labels)
         .unwrap()
         .get() as u64;
-    let storage_size = EVENTS_STORAGE_SIZE_DATE
+    let storage_size = METRICS
+        .events_storage_size_date
         .get_metric_with_label_values(&storage_size_labels)
         .unwrap()
         .get() as u64;
@@ -158,15 +161,18 @@ pub async fn update_snapshot(
                     .to_string();
                 let event_labels = event_labels_date(stream_name, "json", &date);
                 let storage_size_labels = storage_size_labels_date(stream_name, &date);
-                let events_ingested = EVENTS_INGESTED_DATE
+                let events_ingested = METRICS
+                    .events_ingested_date
                     .get_metric_with_label_values(&event_labels)
                     .unwrap()
                     .get() as u64;
-                let ingestion_size = EVENTS_INGESTED_SIZE_DATE
+                let ingestion_size = METRICS
+                    .events_ingested_size_date
                     .get_metric_with_label_values(&event_labels)
                     .unwrap()
                     .get() as u64;
-                let storage_size = EVENTS_STORAGE_SIZE_DATE
+                let storage_size = METRICS
+                    .events_storage_size_date
                     .get_metric_with_label_values(&storage_size_labels)
                     .unwrap()
                     .get() as u64;
