@@ -137,8 +137,6 @@ impl Stream {
             };
         }
 
-        guard.mem.push(schema_key, record);
-
         Ok(())
     }
 
@@ -345,19 +343,32 @@ impl Stream {
         Ok(())
     }
 
-    pub fn recordbatches_cloned(&self, schema: &Arc<Schema>) -> Vec<RecordBatch> {
-        self.writer.lock().unwrap().mem.recordbatch_cloned(schema)
+    pub fn recordbatches_cloned(
+        &self,
+        schema: &Arc<Schema>,
+        time_partition: Option<String>,
+    ) -> Vec<RecordBatch> {
+        let arrow_files = self.arrow_files();
+        let record_reader = MergedRecordReader::new(&arrow_files);
+        if record_reader.readers.is_empty() {
+            return vec![];
+        }
+
+        record_reader
+            .merged_iter(schema.clone(), time_partition)
+            .collect()
     }
 
     pub fn clear(&self) {
-        self.writer.lock().unwrap().mem.clear();
+        if let Err(err) = std::fs::remove_dir_all(self.options.local_stream_data_path(&self.stream_name)) {
+            error!("Failure removing staging: {err}");
+        }
     }
 
     pub fn flush(&self) {
         let mut disk_writers = {
             let mut writer = self.writer.lock().unwrap();
-            // Flush memory
-            writer.mem.clear();
+
             // Take schema -> disk writer mapping
             std::mem::take(&mut writer.disk)
         };

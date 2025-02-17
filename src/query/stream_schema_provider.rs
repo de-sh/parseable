@@ -444,7 +444,8 @@ impl TableProvider for StandardTableProvider {
 
         if include_now(filters, &time_partition) {
             if let Ok(staging) = PARSEABLE.get_stream(&self.stream) {
-                let records = staging.recordbatches_cloned(&self.schema);
+                let time_partition = staging.get_time_partition();
+                let records = staging.recordbatches_cloned(&self.schema, time_partition);
                 let reversed_mem_table = reversed_mem_table(records, self.schema.clone())?;
 
                 let memory_exec = reversed_mem_table
