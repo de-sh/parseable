@@ -359,6 +359,7 @@ impl Stream {
             .collect()
     }
 
+    /// Deletes staging, necessary to ensure that we don't run out of storage in query server
     pub fn clear(&self) {
         if let Err(err) = std::fs::remove_dir_all(self.options.local_stream_data_path(&self.stream_name)) {
             error!("Failure removing staging: {err}");
