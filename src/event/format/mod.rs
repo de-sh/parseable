@@ -24,7 +24,7 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{anyhow, Error as AnyError};
+use anyhow::anyhow;
 use arrow_array::RecordBatch;
 use arrow_schema::{DataType, Field, Schema, TimeUnit};
 use chrono::{DateTime, Utc};
@@ -119,14 +119,14 @@ pub trait EventFormat: Sized {
         schema_version: SchemaVersion,
     ) -> anyhow::Result<(EventSchema, IsFirstEvent)>;
 
-    fn decode(data: Self::Data, schema: Arc<Schema>) -> Result<RecordBatch, AnyError>;
+    fn decode(data: Self::Data, schema: Arc<Schema>) -> anyhow::Result<RecordBatch>;
 
     /// Updates inferred schema with `p_timestamp` field and ensures it adheres to expectations
     fn prepare_and_validate_schema(
         mut schema: EventSchema,
         storage_schema: &HashMap<String, Arc<Field>>,
         static_schema_flag: bool,
-    ) -> Result<EventSchema, AnyError> {
+    ) -> anyhow::Result<EventSchema> {
         if get_field(&schema, DEFAULT_TIMESTAMP_KEY).is_some() {
             return Err(anyhow!("field {DEFAULT_TIMESTAMP_KEY} is a reserved field",));
         }
@@ -160,7 +160,7 @@ pub trait EventFormat: Sized {
         schema: &EventSchema,
         time_partition: Option<&String>,
         schema_version: SchemaVersion,
-    ) -> Result<RecordBatch, AnyError> {
+    ) -> anyhow::Result<RecordBatch> {
         // prepare the record batch and new fields to be added
         let mut new_schema = Arc::new(Schema::new(schema.clone()));
         new_schema =
@@ -176,7 +176,7 @@ pub trait EventFormat: Sized {
         Ok(rb)
     }
 
-    fn into_event(self, stream: &Stream) -> Result<Event, AnyError>;
+    fn into_event(self, stream: &Stream) -> anyhow::Result<Event>;
 }
 
 pub fn get_existing_field_names(
@@ -234,7 +234,7 @@ pub fn update_field_type_in_schema(
     inferred_schema: Arc<Schema>,
     existing_schema: Option<&HashMap<String, Arc<Field>>>,
     time_partition: Option<&String>,
-    log_records: Option<&[Json]>,
+    log_records: Option<&Json>,
     schema_version: SchemaVersion,
 ) -> Arc<Schema> {
     let mut updated_schema = inferred_schema.clone();
@@ -245,11 +245,9 @@ pub fn update_field_type_in_schema(
         updated_schema = override_existing_timestamp_fields(existing_schema, updated_schema);
     }
 
-    if let Some(log_records) = log_records {
-        for log_record in log_records {
-            updated_schema =
-                override_data_type(updated_schema.clone(), log_record.clone(), schema_version);
-        }
+    if let Some(log_record) = log_records {
+        updated_schema =
+            override_data_type(updated_schema.clone(), log_record.clone(), schema_version);
     }
 
     let Some(time_partition) = time_partition else {
