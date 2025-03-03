@@ -234,7 +234,7 @@ pub fn update_field_type_in_schema(
     inferred_schema: Arc<Schema>,
     existing_schema: Option<&HashMap<String, Arc<Field>>>,
     time_partition: Option<&String>,
-    log_records: Option<&Json>,
+    log_records: Option<&[Json]>,
     schema_version: SchemaVersion,
 ) -> Arc<Schema> {
     let mut updated_schema = inferred_schema.clone();
@@ -245,9 +245,11 @@ pub fn update_field_type_in_schema(
         updated_schema = override_existing_timestamp_fields(existing_schema, updated_schema);
     }
 
-    if let Some(log_record) = log_records {
-        updated_schema =
-            override_data_type(updated_schema.clone(), log_record.clone(), schema_version);
+    if let Some(log_records) = log_records {
+        for log_record in log_records {
+            updated_schema =
+                override_data_type(updated_schema.clone(), log_record.clone(), schema_version);
+        }
     }
 
     let Some(time_partition) = time_partition else {
