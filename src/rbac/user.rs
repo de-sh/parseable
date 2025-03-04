@@ -16,16 +16,19 @@
  *
  */
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
     Argon2, PasswordHash, PasswordVerifier,
 };
-
 use rand::distributions::{Alphanumeric, DistString};
+use serde_json::{json, Value};
 
-use crate::parseable::PARSEABLE;
+use crate::{
+    parseable::PARSEABLE,
+    rbac::{map::roles, role::model::DefaultPrivilege, Users},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
@@ -83,6 +86,34 @@ impl User {
 
     pub fn roles(&self) -> Vec<String> {
         self.roles.iter().cloned().collect()
+    }
+
+    pub fn to_prism(&self) -> Value {
+        let id = self.username();
+        let roles: HashMap<String, Vec<DefaultPrivilege>> = Users
+            .get_role(id)
+            .iter()
+            .filter_map(|role_name| {
+                roles()
+                    .get(role_name)
+                    .map(|role| (role_name.to_owned(), role.clone()))
+            })
+            .collect();
+
+        match &self.ty {
+            UserType::Native(_) => json!({
+                "id": id,
+                "method": "native",
+                "roles": roles,
+            }),
+            UserType::OAuth(oauth) => json!({
+                "id": id,
+                "method": "oauth",
+                "email": oauth.user_info.email,
+                "picture": oauth.user_info.picture,
+                "roles": roles,
+            }),
+        }
     }
 }
 
