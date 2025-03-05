@@ -764,12 +764,12 @@ pub trait ObjectStorage: Debug + Send + Sync + 'static {
                     continue; // Skip to the next file
                 }
 
-                let absolute_path = self
-                    .absolute_url(RelativePath::from_path(&stream_relative_path).unwrap())
-                    .to_string();
+                let absolute_path =
+                    self.absolute_url(RelativePath::from_path(&stream_relative_path).unwrap());
                 let store = PARSEABLE.storage().get_object_store();
                 let manifest =
-                    catalog::create_from_parquet_file(absolute_path.clone(), &path).unwrap();
+                    catalog::manifest::File::from_parquet_file(absolute_path, &path)
+                        .unwrap();
                 catalog::update_snapshot(store, &stream_name, manifest).await?;
 
                 if let Err(e) = remove_file(path) {

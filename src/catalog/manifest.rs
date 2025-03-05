@@ -18,10 +18,12 @@
 
 use std::collections::HashMap;
 
+use chrono::{DateTime, Utc};
 use itertools::Itertools;
+use object_store::path::Path;
 use parquet::{file::reader::FileReader, format::SortingColumn};
 
-use super::column::Column;
+use super::{column::{Column, TypedStatistics}, ManifestFile};
 
 #[derive(
     Debug,
@@ -58,6 +60,62 @@ pub struct File {
     pub sort_order_id: Vec<SortInfo>,
 }
 
+impl File {
+    pub fn from_parquet_file(
+        object_store_path: Path,
+        fs_file_path: &std::path::Path,
+    ) -> anyhow::Result<File> {
+        let mut manifest_file = File {
+            file_path: object_store_path.to_string(),
+            ..File::default()
+        };
+
+        let file = std::fs::File::open(fs_file_path)?;
+        manifest_file.file_size = file.metadata()?.len();
+
+        let file = parquet::file::serialized_reader::SerializedFileReader::new(file)?;
+        let file_meta = file.metadata().file_metadata();
+        let row_groups = file.metadata().row_groups();
+
+        manifest_file.num_rows = file_meta.num_rows() as u64;
+        manifest_file.ingestion_size = row_groups
+            .iter()
+            .fold(0, |acc, x| acc + x.total_byte_size() as u64);
+
+        let columns = column_statistics(row_groups);
+        manifest_file.columns = columns.into_values().collect();
+        let mut sort_orders = sort_order(row_groups);
+        if let Some(last_sort_order) = sort_orders.pop() {
+            if sort_orders
+                .into_iter()
+                .all(|sort_order| sort_order == last_sort_order)
+            {
+                manifest_file.sort_order_id = last_sort_order;
+            }
+        }
+
+        Ok(manifest_file)
+    }
+
+    pub fn get_bounds(&self, partition_column: &str) -> (DateTime<Utc>, DateTime<Utc>) {
+        match self
+            .columns()
+            .iter()
+            .find(|col| col.name == partition_column)
+            .unwrap()
+            .stats
+            .as_ref()
+            .unwrap()
+        {
+            TypedStatistics::Int(stats) => (
+                DateTime::from_timestamp_millis(stats.min).unwrap(),
+                DateTime::from_timestamp_millis(stats.max).unwrap(),
+            ),
+            _ => unreachable!(),
+        }
+    }
+}
+
 /// A manifest file composed of multiple file entries.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Manifest {
@@ -86,42 +144,6 @@ impl Manifest {
             self.files.push(change)
         }
     }
-}
-
-pub fn create_from_parquet_file(
-    object_store_path: String,
-    fs_file_path: &std::path::Path,
-) -> anyhow::Result<File> {
-    let mut manifest_file = File {
-        file_path: object_store_path,
-        ..File::default()
-    };
-
-    let file = std::fs::File::open(fs_file_path)?;
-    manifest_file.file_size = file.metadata()?.len();
-
-    let file = parquet::file::serialized_reader::SerializedFileReader::new(file)?;
-    let file_meta = file.metadata().file_metadata();
-    let row_groups = file.metadata().row_groups();
-
-    manifest_file.num_rows = file_meta.num_rows() as u64;
-    manifest_file.ingestion_size = row_groups
-        .iter()
-        .fold(0, |acc, x| acc + x.total_byte_size() as u64);
-
-    let columns = column_statistics(row_groups);
-    manifest_file.columns = columns.into_values().collect();
-    let mut sort_orders = sort_order(row_groups);
-    if let Some(last_sort_order) = sort_orders.pop() {
-        if sort_orders
-            .into_iter()
-            .all(|sort_order| sort_order == last_sort_order)
-        {
-            manifest_file.sort_order_id = last_sort_order;
-        }
-    }
-
-    Ok(manifest_file)
 }
 
 fn sort_order(

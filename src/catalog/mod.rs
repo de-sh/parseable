@@ -38,11 +38,11 @@ use crate::{
         object_storage::manifest_path, ObjectStorage, ObjectStorageError, ObjectStoreFormat,
     },
 };
-pub use manifest::create_from_parquet_file;
 
 pub mod column;
 pub mod manifest;
 pub mod snapshot;
+
 pub trait Snapshot {
     fn manifests(&self, time_predicates: &[PartialTimeFilter]) -> Vec<ManifestItem>;
 }
@@ -80,27 +80,6 @@ impl ManifestFile for manifest::File {
     }
 }
 
-fn get_file_bounds(
-    file: &manifest::File,
-    partition_column: String,
-) -> (DateTime<Utc>, DateTime<Utc>) {
-    match file
-        .columns()
-        .iter()
-        .find(|col| col.name == partition_column)
-        .unwrap()
-        .stats
-        .as_ref()
-        .unwrap()
-    {
-        column::TypedStatistics::Int(stats) => (
-            DateTime::from_timestamp_millis(stats.min).unwrap(),
-            DateTime::from_timestamp_millis(stats.max).unwrap(),
-        ),
-        _ => unreachable!(),
-    }
-}
-
 pub async fn update_snapshot(
     storage: Arc<dyn ObjectStorage>,
     stream_name: &str,
@@ -108,17 +87,12 @@ pub async fn update_snapshot(
 ) -> Result<(), ObjectStorageError> {
     let mut meta = storage.get_object_store_format(stream_name).await?;
     let manifests = &mut meta.snapshot.manifest_list;
-    let time_partition = &meta.time_partition;
-    let lower_bound = match time_partition {
-        Some(time_partition) => {
-            let (lower_bound, _) = get_file_bounds(&change, time_partition.to_string());
-            lower_bound
-        }
-        None => {
-            let (lower_bound, _) = get_file_bounds(&change, DEFAULT_TIMESTAMP_KEY.to_string());
-            lower_bound
-        }
-    };
+    let (lower_bound, _) = change.get_bounds(
+        meta.time_partition
+            .as_ref()
+            .map_or(DEFAULT_TIMESTAMP_KEY, |s| s.as_str()),
+    );
+
     let date = lower_bound.date_naive().format("%Y-%m-%d").to_string();
     let event_labels = event_labels_date(stream_name, "json", &date);
     let storage_size_labels = storage_size_labels_date(stream_name, &date);
@@ -267,18 +241,12 @@ async fn create_manifest(
     let mut first_event_at = PARSEABLE.get_stream(stream_name)?.get_first_event();
     if first_event_at.is_none() {
         if let Some(first_event) = manifest.files.first() {
-            let time_partition = &meta.time_partition;
-            let lower_bound = match time_partition {
-                Some(time_partition) => {
-                    let (lower_bound, _) = get_file_bounds(first_event, time_partition.to_string());
-                    lower_bound
-                }
-                None => {
-                    let (lower_bound, _) =
-                        get_file_bounds(first_event, DEFAULT_TIMESTAMP_KEY.to_string());
-                    lower_bound
-                }
-            };
+            let (lower_bound, _) = first_event.get_bounds(
+                meta.time_partition
+                    .as_ref()
+                    .map_or(DEFAULT_TIMESTAMP_KEY, |s| s.as_str()),
+            );
+
             first_event_at = Some(lower_bound.with_timezone(&Local).to_rfc3339());
             match PARSEABLE.get_stream(stream_name) {
                 Ok(stream) => stream.set_first_event_at(first_event_at.as_ref().unwrap()),
@@ -364,14 +332,11 @@ pub async fn get_first_event(
                 first_event_at = stream_first_event.unwrap();
             } else {
                 let mut meta = storage.get_object_store_format(stream_name).await?;
-                let meta_clone = meta.clone();
-                let manifests = meta_clone.snapshot.manifest_list;
-                let time_partition = meta_clone.time_partition;
-                if manifests.is_empty() {
+                if meta.snapshot.manifest_list.is_empty() {
                     info!("No manifest found for stream {stream_name}");
                     return Err(ObjectStorageError::Custom("No manifest found".to_string()));
                 }
-                let manifest = &manifests[0];
+                let manifest = &meta.snapshot.manifest_list[0];
                 let path = partition_path(
                     stream_name,
                     manifest.time_lower_bound,
@@ -385,17 +350,12 @@ pub async fn get_first_event(
                     ));
                 };
                 if let Some(first_event) = manifest.files.first() {
-                    let lower_bound = match time_partition {
-                        Some(time_partition) => {
-                            let (lower_bound, _) = get_file_bounds(first_event, time_partition);
-                            lower_bound
-                        }
-                        None => {
-                            let (lower_bound, _) =
-                                get_file_bounds(first_event, DEFAULT_TIMESTAMP_KEY.to_string());
-                            lower_bound
-                        }
-                    };
+                    let (lower_bound, _) = first_event.get_bounds(
+                        meta.time_partition
+                            .as_ref()
+                            .map_or(DEFAULT_TIMESTAMP_KEY, |s| s.as_str()),
+                    );
+
                     first_event_at = lower_bound.with_timezone(&Local).to_rfc3339();
                     meta.first_event_at = Some(first_event_at.clone());
                     storage.put_stream_manifest(stream_name, &meta).await?;
