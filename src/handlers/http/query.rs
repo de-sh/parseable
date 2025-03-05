@@ -29,14 +29,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::time::Instant;
 use tracing::error;
 
-use crate::event::commit_schema;
 use crate::event::error::EventError;
 use crate::metrics::QUERY_EXECUTE_TIME;
-use crate::option::Mode;
 use crate::parseable::PARSEABLE;
 use crate::query::error::ExecuteError;
 use crate::query::{CountsRequest, CountsResponse, Query as LogicalQuery};
@@ -86,7 +83,7 @@ pub async fn query(req: HttpRequest, query_request: Query) -> Result<HttpRespons
     let _ = raw_logical_plan.visit(&mut visitor);
 
     let tables = visitor.into_inner();
-    update_schema_when_distributed(&tables).await?;
+    PARSEABLE.update_schema_when_distributed(&tables).await?;
     let query: LogicalQuery = into_query(&query_request, &session_state, time_range).await?;
 
     let creds = extract_session_key_from_req(&req)?;
@@ -162,25 +159,6 @@ pub async fn get_counts(
         fields: vec!["start_time".into(), "end_time".into(), "count".into()],
         records,
     }))
-}
-
-pub async fn update_schema_when_distributed(tables: &Vec<String>) -> Result<(), EventError> {
-    if PARSEABLE.options.mode == Mode::Query {
-        for table in tables {
-            if let Ok(new_schema) = PARSEABLE.fetch_schema(table).await {
-                // commit schema merges the schema internally and updates the schema in storage.
-                PARSEABLE
-                    .storage
-                    .get_object_store()
-                    .commit_schema(table, new_schema.clone())
-                    .await?;
-
-                commit_schema(table, Arc::new(new_schema))?;
-            }
-        }
-    }
-
-    Ok(())
 }
 
 /// Create streams for querier if they do not exist
