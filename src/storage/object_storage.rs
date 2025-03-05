@@ -782,7 +782,7 @@ pub trait ObjectStorage: Debug + Send + Sync + 'static {
 
                 let absolute_path =
                     self.absolute_url(RelativePath::from_path(&stream_relative_path).unwrap());
-                let manifest = catalog::manifest::File::from_parquet_file(absolute_path, &path)?;
+                let manifest = manifest::File::from_parquet_file(absolute_path, &path)?;
                 self.update_snapshot(&stream, manifest).await?;
 
                 if let Err(e) = remove_file(path) {
@@ -803,14 +803,15 @@ pub trait ObjectStorage: Debug + Send + Sync + 'static {
         Ok(())
     }
 
+    /// Update parseable snapshot with stats everytime a parquet file is constructed
     async fn update_snapshot(
         &self,
         stream: &Stream,
-        change: manifest::File,
+        changed: manifest::File,
     ) -> Result<(), ObjectStorageError> {
+        let mut update_snapshot = true;
         let mut meta = self.get_object_store_format(&stream.stream_name).await?;
-        let manifests = &mut meta.snapshot.manifest_list;
-        let (lower_bound, _) = change.get_bounds(
+        let (lower_bound, _) = changed.get_bounds(
             meta.time_partition
                 .as_ref()
                 .map_or(DEFAULT_TIMESTAMP_KEY, |s| s.as_str()),
@@ -831,105 +832,75 @@ pub trait ObjectStorage: Debug + Send + Sync + 'static {
             .get_metric_with_label_values(&storage_size_labels)
             .unwrap()
             .get() as u64;
-        let pos = manifests.iter().position(|item| {
-            item.time_lower_bound <= lower_bound && lower_bound < item.time_upper_bound
-        });
 
         // if the mode in I.S. manifest needs to be created but it is not getting created because
         // there is already a pos, to index into stream.json
 
         // We update the manifest referenced by this position
         // This updates an existing file so there is no need to create a snapshot entry.
-        if let Some(pos) = pos {
-            let info = &mut manifests[pos];
+        if let Some(info) = meta.snapshot.manifest_list.iter().find(|item| {
+            item.time_lower_bound <= lower_bound && lower_bound < item.time_upper_bound
+        }) {
             let path = partition_path(
                 &stream.stream_name,
                 info.time_lower_bound.date_naive(),
                 info.time_upper_bound.date_naive(),
             );
 
-            let mut ch = false;
-            for m in manifests.iter_mut() {
-                let p = manifest_path("").to_string();
-                if m.manifest_path.contains(&p) {
-                    let date = m
-                        .time_lower_bound
-                        .date_naive()
-                        .format("%Y-%m-%d")
-                        .to_string();
+            let mut has_changed = false;
+            for info in meta.snapshot.manifest_list.iter_mut() {
+                let path = manifest_path("").to_string();
+                let date = info
+                    .time_lower_bound
+                    .date_naive()
+                    .format("%Y-%m-%d")
+                    .to_string();
+                if info.manifest_path.contains(&path) {
                     let event_labels = event_labels_date(&stream.stream_name, "json", &date);
                     let storage_size_labels = storage_size_labels_date(&stream.stream_name, &date);
-                    let events_ingested = EVENTS_INGESTED_DATE
+                    has_changed = true;
+                    info.events_ingested = EVENTS_INGESTED_DATE
                         .get_metric_with_label_values(&event_labels)
                         .unwrap()
                         .get() as u64;
-                    let ingestion_size = EVENTS_INGESTED_SIZE_DATE
+                    info.ingestion_size = EVENTS_INGESTED_SIZE_DATE
                         .get_metric_with_label_values(&event_labels)
                         .unwrap()
                         .get() as u64;
-                    let storage_size = EVENTS_STORAGE_SIZE_DATE
+                    info.storage_size = EVENTS_STORAGE_SIZE_DATE
                         .get_metric_with_label_values(&storage_size_labels)
                         .unwrap()
                         .get() as u64;
-                    ch = true;
-                    m.events_ingested = events_ingested;
-                    m.ingestion_size = ingestion_size;
-                    m.storage_size = storage_size;
                 }
             }
 
-            if ch {
+            if has_changed {
                 if let Some(mut manifest) = self.get_manifest(&path).await? {
-                    manifest.apply_change(change);
+                    manifest.apply_change(changed);
                     self.put_manifest(&path, manifest).await?;
                     let stats = get_current_stats(&stream.stream_name, "json");
                     if let Some(stats) = stats {
                         meta.stats = stats;
                     }
-                    meta.snapshot.manifest_list = manifests.to_vec();
 
                     self.put_stream_manifest(&stream.stream_name, &meta).await?;
-                } else {
-                    //instead of returning an error, create a new manifest (otherwise local to storage sync fails)
-                    //but don't update the snapshot
-                    self.create_manifest(
-                        meta,
-                        lower_bound.date_naive(),
-                        change,
-                        stream,
-                        false,
-                        events_ingested,
-                        ingestion_size,
-                        storage_size,
-                    )
-                    .await?;
+                    return Ok(());
                 }
-            } else {
-                self.create_manifest(
-                    meta,
-                    lower_bound.date_naive(),
-                    change,
-                    stream,
-                    true,
-                    events_ingested,
-                    ingestion_size,
-                    storage_size,
-                )
-                .await?;
+                update_snapshot = false;
             }
-        } else {
-            self.create_manifest(
-                meta,
-                lower_bound.date_naive(),
-                change,
-                stream,
-                true,
-                events_ingested,
-                ingestion_size,
-                storage_size,
-            )
-            .await?;
         }
+
+        self.create_manifest(
+            meta,
+            lower_bound.date_naive(),
+            changed,
+            stream,
+            update_snapshot,
+            events_ingested,
+            ingestion_size,
+            storage_size,
+        )
+        .await?;
 
         Ok(())
     }
