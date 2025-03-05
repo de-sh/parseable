@@ -16,60 +16,53 @@
  *
  */
 
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fmt::Debug;
-use std::fs::{remove_file, File};
-use std::io::{Error, ErrorKind};
-use std::num::NonZeroU32;
-use std::path::Path;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    fmt::Debug,
+    fs::{remove_file, File},
+    io::{Error, ErrorKind},
+    num::NonZeroU32,
+    path::Path,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use actix_web_prometheus::PrometheusMetrics;
 use arrow_schema::Schema;
 use async_trait::async_trait;
 use bytes::Bytes;
-use chrono::NaiveTime;
-use chrono::{DateTime, Utc};
-use chrono::{Local, NaiveDate};
+use chrono::{DateTime, Local, NaiveDate, NaiveTime, Utc};
 use datafusion::{datasource::listing::ListingTableUrl, execution::runtime_env::RuntimeEnvBuilder};
-use object_store::buffered::BufReader;
-use object_store::ObjectMeta;
+use object_store::{buffered::BufReader, ObjectMeta};
 use once_cell::sync::OnceCell;
-use relative_path::RelativePath;
-use relative_path::RelativePathBuf;
-use tracing::info;
-use tracing::{error, warn};
+use relative_path::{RelativePath, RelativePathBuf};
+use tracing::{error, info, warn};
 use ulid::Ulid;
 
-use crate::alerts::AlertConfig;
-use crate::catalog::manifest;
-use crate::catalog::partition_path;
-use crate::catalog::snapshot::ManifestItem;
-use crate::catalog::{self, manifest::Manifest, snapshot::Snapshot};
-use crate::correlation::{CorrelationConfig, CorrelationError};
-use crate::event::DEFAULT_TIMESTAMP_KEY;
-use crate::handlers;
-use crate::handlers::http::base_path_without_preceding_slash;
-use crate::handlers::http::cluster::get_ingestor_info;
-use crate::handlers::http::modal::ingest_server::INGESTOR_EXPECT;
-use crate::handlers::http::users::CORRELATION_DIR;
-use crate::handlers::http::users::{DASHBOARDS_DIR, FILTER_DIR, USERS_ROOT_DIR};
-use crate::metrics::storage::StorageMetrics;
-use crate::metrics::EVENTS_INGESTED_SIZE_DATE;
-use crate::metrics::{
-    DELETED_EVENTS_STORAGE_SIZE, EVENTS_DELETED, EVENTS_DELETED_SIZE, EVENTS_INGESTED,
-    EVENTS_INGESTED_DATE, EVENTS_INGESTED_SIZE,
+use crate::{
+    alerts::AlertConfig,
+    catalog::{
+        manifest::{self, Manifest},
+        partition_path,
+        snapshot::{ManifestItem, Snapshot},
+    },
+    correlation::{CorrelationConfig, CorrelationError},
+    event::DEFAULT_TIMESTAMP_KEY,
+    handlers::http::{
+        base_path_without_preceding_slash,
+        cluster::{get_ingestor_info, send_retention_cleanup_request},
+        modal::ingest_server::INGESTOR_EXPECT,
+        users::{CORRELATION_DIR, DASHBOARDS_DIR, FILTER_DIR, USERS_ROOT_DIR},
+    },
+    metrics::{
+        storage::StorageMetrics, DELETED_EVENTS_STORAGE_SIZE, EVENTS_DELETED, EVENTS_DELETED_SIZE,
+        EVENTS_INGESTED, EVENTS_INGESTED_DATE, EVENTS_INGESTED_SIZE, EVENTS_INGESTED_SIZE_DATE,
+        EVENTS_STORAGE_SIZE_DATE, LIFETIME_EVENTS_STORAGE_SIZE, STORAGE_SIZE,
+    },
+    option::Mode,
+    parseable::{LogStream, Stream, PARSEABLE},
+    stats::{event_labels_date, get_current_stats, storage_size_labels_date, FullStats},
 };
-use crate::metrics::{EVENTS_STORAGE_SIZE_DATE, LIFETIME_EVENTS_STORAGE_SIZE, STORAGE_SIZE};
-use crate::option::Mode;
-use crate::parseable::LogStream;
-use crate::parseable::Stream;
-use crate::parseable::PARSEABLE;
-use crate::stats::event_labels_date;
-use crate::stats::get_current_stats;
-use crate::stats::storage_size_labels_date;
-use crate::stats::FullStats;
 
 use super::{
     retention::Retention, ObjectStorageError, ObjectStoreFormat, StorageMetadata,
@@ -1135,12 +1128,7 @@ pub trait ObjectStorage: Debug + Send + Sync + 'static {
                         stream_name
                     );
                     let ingestor_first_event_at =
-                        handlers::http::cluster::send_retention_cleanup_request(
-                            &url,
-                            ingestor.clone(),
-                            &dates,
-                        )
-                        .await?;
+                        send_retention_cleanup_request(&url, ingestor.clone(), &dates).await?;
                     if !ingestor_first_event_at.is_empty() {
                         ingestors_first_event_at.push(ingestor_first_event_at);
                     }
