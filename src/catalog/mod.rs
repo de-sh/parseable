@@ -18,7 +18,7 @@
 
 use std::{io::ErrorKind, sync::Arc};
 
-use chrono::{DateTime, Local, NaiveTime, Utc};
+use chrono::{DateTime, Local, NaiveDate, NaiveTime, Utc};
 use column::Column;
 use manifest::Manifest;
 use relative_path::RelativePathBuf;
@@ -119,7 +119,11 @@ pub async fn update_snapshot(
     // This updates an existing file so there is no need to create a snapshot entry.
     if let Some(pos) = pos {
         let info = &mut manifests[pos];
-        let path = partition_path(stream_name, info.time_lower_bound, info.time_upper_bound);
+        let path = partition_path(
+            stream_name,
+            info.time_lower_bound.date_naive(),
+            info.time_upper_bound.date_naive(),
+        );
 
         let mut ch = false;
         for m in manifests.iter_mut() {
@@ -258,7 +262,12 @@ async fn create_manifest(
     }
 
     let mainfest_file_name = manifest_path("").to_string();
-    let path = partition_path(stream_name, lower_bound, upper_bound).join(&mainfest_file_name);
+    let path = partition_path(
+        stream_name,
+        lower_bound.date_naive(),
+        upper_bound.date_naive(),
+    )
+    .join(&mainfest_file_name);
     storage
         .put_object(&path, serde_json::to_vec(&manifest)?.into())
         .await?;
@@ -339,8 +348,8 @@ pub async fn get_first_event(
                 let manifest = &meta.snapshot.manifest_list[0];
                 let path = partition_path(
                     stream_name,
-                    manifest.time_lower_bound,
-                    manifest.time_upper_bound,
+                    manifest.time_lower_bound.date_naive(),
+                    manifest.time_upper_bound.date_naive(),
                 );
                 let Some(manifest) = storage.get_manifest(&path).await? else {
                     return Err(ObjectStorageError::UnhandledError(
@@ -406,14 +415,19 @@ pub async fn get_first_event(
 /// Useful when uploading the manifest file.
 pub fn partition_path(
     stream: &str,
-    lower_bound: DateTime<Utc>,
-    upper_bound: DateTime<Utc>,
+    lower_bound: NaiveDate,
+    upper_bound: NaiveDate,
 ) -> RelativePathBuf {
-    let lower = lower_bound.date_naive().format("%Y-%m-%d").to_string();
-    let upper = upper_bound.date_naive().format("%Y-%m-%d").to_string();
-    if lower == upper {
-        RelativePathBuf::from_iter([stream, &format!("date={}", lower)])
+    if lower_bound == upper_bound {
+        RelativePathBuf::from_iter([stream, &format!("date={}", lower_bound.format("%Y-%m-%d"))])
     } else {
-        RelativePathBuf::from_iter([stream, &format!("date={}:{}", lower, upper)])
+        RelativePathBuf::from_iter([
+            stream,
+            &format!(
+                "date={}:{}",
+                lower_bound.format("%Y-%m-%d"),
+                upper_bound.format("%Y-%m-%d")
+            ),
+        ])
     }
 }
