@@ -33,10 +33,8 @@ use std::sync::Arc;
 use std::time::Instant;
 use tracing::error;
 
-use crate::event::error::EventError;
-use crate::handlers::http::fetch_schema;
-
 use crate::event::commit_schema;
+use crate::event::error::EventError;
 use crate::metrics::QUERY_EXECUTE_TIME;
 use crate::option::Mode;
 use crate::parseable::PARSEABLE;
@@ -169,7 +167,7 @@ pub async fn get_counts(
 pub async fn update_schema_when_distributed(tables: &Vec<String>) -> Result<(), EventError> {
     if PARSEABLE.options.mode == Mode::Query {
         for table in tables {
-            if let Ok(new_schema) = fetch_schema(table).await {
+            if let Ok(new_schema) = PARSEABLE.fetch_schema(table).await {
                 // commit schema merges the schema internally and updates the schema in storage.
                 PARSEABLE
                     .storage
