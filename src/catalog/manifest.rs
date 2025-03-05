@@ -23,7 +23,10 @@ use itertools::Itertools;
 use object_store::path::Path;
 use parquet::{file::reader::FileReader, format::SortingColumn};
 
-use super::{column::{Column, TypedStatistics}, ManifestFile};
+use super::{
+    column::{Column, TypedStatistics},
+    ManifestFile,
+};
 
 #[derive(
     Debug,

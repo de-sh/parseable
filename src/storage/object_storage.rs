@@ -16,22 +16,22 @@
  *
  */
 
-use std::collections::BTreeMap;
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Debug;
 use std::fs::{remove_file, File};
+use std::io::{Error, ErrorKind};
 use std::num::NonZeroU32;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use actix_web_prometheus::PrometheusMetrics;
 use arrow_schema::Schema;
 use async_trait::async_trait;
 use bytes::Bytes;
+use chrono::NaiveTime;
 use chrono::{DateTime, Utc};
+use chrono::{Local, NaiveDate};
 use datafusion::{datasource::listing::ListingTableUrl, execution::runtime_env::RuntimeEnvBuilder};
 use object_store::buffered::BufReader;
 use object_store::ObjectMeta;
@@ -43,16 +43,32 @@ use tracing::{error, warn};
 use ulid::Ulid;
 
 use crate::alerts::AlertConfig;
+use crate::catalog::manifest;
+use crate::catalog::partition_path;
+use crate::catalog::snapshot::ManifestItem;
 use crate::catalog::{self, manifest::Manifest, snapshot::Snapshot};
 use crate::correlation::{CorrelationConfig, CorrelationError};
+use crate::event::DEFAULT_TIMESTAMP_KEY;
+use crate::handlers;
+use crate::handlers::http::base_path_without_preceding_slash;
+use crate::handlers::http::cluster::get_ingestor_info;
 use crate::handlers::http::modal::ingest_server::INGESTOR_EXPECT;
 use crate::handlers::http::users::CORRELATION_DIR;
 use crate::handlers::http::users::{DASHBOARDS_DIR, FILTER_DIR, USERS_ROOT_DIR};
 use crate::metrics::storage::StorageMetrics;
+use crate::metrics::EVENTS_INGESTED_SIZE_DATE;
+use crate::metrics::{
+    DELETED_EVENTS_STORAGE_SIZE, EVENTS_DELETED, EVENTS_DELETED_SIZE, EVENTS_INGESTED,
+    EVENTS_INGESTED_DATE, EVENTS_INGESTED_SIZE,
+};
 use crate::metrics::{EVENTS_STORAGE_SIZE_DATE, LIFETIME_EVENTS_STORAGE_SIZE, STORAGE_SIZE};
 use crate::option::Mode;
 use crate::parseable::LogStream;
+use crate::parseable::Stream;
 use crate::parseable::PARSEABLE;
+use crate::stats::event_labels_date;
+use crate::stats::get_current_stats;
+use crate::stats::storage_size_labels_date;
 use crate::stats::FullStats;
 
 use super::{
@@ -466,7 +482,7 @@ pub trait ObjectStorage: Debug + Send + Sync + 'static {
         &self,
         path: &RelativePath,
     ) -> Result<Option<Manifest>, ObjectStorageError> {
-        let path = manifest_path(path.as_str());
+        let path = manifest_path(path);
         match self.get_object(&path).await {
             Ok(bytes) => {
                 let manifest = serde_json::from_slice(&bytes)?;
@@ -482,7 +498,7 @@ pub trait ObjectStorage: Debug + Send + Sync + 'static {
         path: &RelativePath,
         manifest: Manifest,
     ) -> Result<(), ObjectStorageError> {
-        let path = manifest_path(path.as_str());
+        let path = manifest_path(path);
         self.put_object(&path, to_bytes(&manifest)).await
     }
 
@@ -766,11 +782,8 @@ pub trait ObjectStorage: Debug + Send + Sync + 'static {
 
                 let absolute_path =
                     self.absolute_url(RelativePath::from_path(&stream_relative_path).unwrap());
-                let store = PARSEABLE.storage().get_object_store();
-                let manifest =
-                    catalog::manifest::File::from_parquet_file(absolute_path, &path)
-                        .unwrap();
-                catalog::update_snapshot(store, &stream_name, manifest).await?;
+                let manifest = catalog::manifest::File::from_parquet_file(absolute_path, &path)?;
+                self.update_snapshot(&stream, manifest).await?;
 
                 if let Err(e) = remove_file(path) {
                     warn!("Failed to remove staged file: {e}");
@@ -788,6 +801,387 @@ pub trait ObjectStorage: Debug + Send + Sync + 'static {
         }
 
         Ok(())
+    }
+
+    async fn update_snapshot(
+        &self,
+        stream: &Stream,
+        change: manifest::File,
+    ) -> Result<(), ObjectStorageError> {
+        let mut meta = self.get_object_store_format(&stream.stream_name).await?;
+        let manifests = &mut meta.snapshot.manifest_list;
+        let (lower_bound, _) = change.get_bounds(
+            meta.time_partition
+                .as_ref()
+                .map_or(DEFAULT_TIMESTAMP_KEY, |s| s.as_str()),
+        );
+
+        let date = lower_bound.date_naive().format("%Y-%m-%d").to_string();
+        let event_labels = event_labels_date(&stream.stream_name, "json", &date);
+        let storage_size_labels = storage_size_labels_date(&stream.stream_name, &date);
+        let events_ingested = EVENTS_INGESTED_DATE
+            .get_metric_with_label_values(&event_labels)
+            .unwrap()
+            .get() as u64;
+        let ingestion_size = EVENTS_INGESTED_SIZE_DATE
+            .get_metric_with_label_values(&event_labels)
+            .unwrap()
+            .get() as u64;
+        let storage_size = EVENTS_STORAGE_SIZE_DATE
+            .get_metric_with_label_values(&storage_size_labels)
+            .unwrap()
+            .get() as u64;
+        let pos = manifests.iter().position(|item| {
+            item.time_lower_bound <= lower_bound && lower_bound < item.time_upper_bound
+        });
+
+        // if the mode in I.S. manifest needs to be created but it is not getting created because
+        // there is already a pos, to index into stream.json
+
+        // We update the manifest referenced by this position
+        // This updates an existing file so there is no need to create a snapshot entry.
+        if let Some(pos) = pos {
+            let info = &mut manifests[pos];
+            let path = partition_path(
+                &stream.stream_name,
+                info.time_lower_bound.date_naive(),
+                info.time_upper_bound.date_naive(),
+            );
+
+            let mut ch = false;
+            for m in manifests.iter_mut() {
+                let p = manifest_path("").to_string();
+                if m.manifest_path.contains(&p) {
+                    let date = m
+                        .time_lower_bound
+                        .date_naive()
+                        .format("%Y-%m-%d")
+                        .to_string();
+                    let event_labels = event_labels_date(&stream.stream_name, "json", &date);
+                    let storage_size_labels = storage_size_labels_date(&stream.stream_name, &date);
+                    let events_ingested = EVENTS_INGESTED_DATE
+                        .get_metric_with_label_values(&event_labels)
+                        .unwrap()
+                        .get() as u64;
+                    let ingestion_size = EVENTS_INGESTED_SIZE_DATE
+                        .get_metric_with_label_values(&event_labels)
+                        .unwrap()
+                        .get() as u64;
+                    let storage_size = EVENTS_STORAGE_SIZE_DATE
+                        .get_metric_with_label_values(&storage_size_labels)
+                        .unwrap()
+                        .get() as u64;
+                    ch = true;
+                    m.events_ingested = events_ingested;
+                    m.ingestion_size = ingestion_size;
+                    m.storage_size = storage_size;
+                }
+            }
+
+            if ch {
+                if let Some(mut manifest) = self.get_manifest(&path).await? {
+                    manifest.apply_change(change);
+                    self.put_manifest(&path, manifest).await?;
+                    let stats = get_current_stats(&stream.stream_name, "json");
+                    if let Some(stats) = stats {
+                        meta.stats = stats;
+                    }
+                    meta.snapshot.manifest_list = manifests.to_vec();
+
+                    self.put_stream_manifest(&stream.stream_name, &meta).await?;
+                } else {
+                    //instead of returning an error, create a new manifest (otherwise local to storage sync fails)
+                    //but don't update the snapshot
+                    self.create_manifest(
+                        meta,
+                        lower_bound.date_naive(),
+                        change,
+                        stream,
+                        false,
+                        events_ingested,
+                        ingestion_size,
+                        storage_size,
+                    )
+                    .await?;
+                }
+            } else {
+                self.create_manifest(
+                    meta,
+                    lower_bound.date_naive(),
+                    change,
+                    stream,
+                    true,
+                    events_ingested,
+                    ingestion_size,
+                    storage_size,
+                )
+                .await?;
+            }
+        } else {
+            self.create_manifest(
+                meta,
+                lower_bound.date_naive(),
+                change,
+                stream,
+                true,
+                events_ingested,
+                ingestion_size,
+                storage_size,
+            )
+            .await?;
+        }
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn create_manifest(
+        &self,
+        mut meta: ObjectStoreFormat,
+        lower_bound: NaiveDate,
+        change: manifest::File,
+        stream: &Stream,
+        update_snapshot: bool,
+        events_ingested: u64,
+        ingestion_size: u64,
+        storage_size: u64,
+    ) -> Result<(), ObjectStorageError> {
+        let upper_bound = lower_bound
+            .and_time(
+                NaiveTime::from_num_seconds_from_midnight_opt(
+                    23 * 3600 + 59 * 60 + 59,
+                    999_999_999,
+                )
+                .ok_or(Error::new(
+                    ErrorKind::Other,
+                    "Failed to create upper bound for manifest",
+                ))?,
+            )
+            .and_utc();
+        let lower_bound = lower_bound.and_time(NaiveTime::MIN).and_utc();
+
+        let manifest = Manifest {
+            files: vec![change],
+            ..Manifest::default()
+        };
+        let mut first_event_at = stream.get_first_event();
+        if first_event_at.is_none() {
+            if let Some(first_event) = manifest.files.first() {
+                let (lower_bound, _) = first_event.get_bounds(
+                    meta.time_partition
+                        .as_ref()
+                        .map_or(DEFAULT_TIMESTAMP_KEY, |s| s.as_str()),
+                );
+
+                first_event_at = Some(lower_bound.with_timezone(&Local).to_rfc3339());
+                stream.set_first_event_at(first_event_at.as_ref().unwrap());
+            }
+        }
+
+        let path = partition_path(
+            &stream.stream_name,
+            lower_bound.date_naive(),
+            upper_bound.date_naive(),
+        );
+        let path = manifest_path(path.as_str());
+        self.put_object(&path, serde_json::to_vec(&manifest)?.into())
+            .await?;
+        if update_snapshot {
+            let path = self.absolute_url(&path);
+            let new_snapshot_entry = ManifestItem {
+                manifest_path: path.to_string(),
+                time_lower_bound: lower_bound,
+                time_upper_bound: upper_bound,
+                events_ingested,
+                ingestion_size,
+                storage_size,
+            };
+            meta.snapshot.manifest_list.push(new_snapshot_entry);
+            let stats = get_current_stats(&stream.stream_name, "json");
+            if let Some(stats) = stats {
+                meta.stats = stats;
+            }
+            meta.first_event_at = first_event_at;
+            self.put_stream_manifest(&stream.stream_name, &meta).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn remove_manifest_from_snapshot(
+        &self,
+        stream_name: &str,
+        dates: Vec<String>,
+    ) -> Result<Option<String>, ObjectStorageError> {
+        if !dates.is_empty() {
+            // get current snapshot
+            let mut meta = self.get_object_store_format(stream_name).await?;
+            let meta_for_stats = meta.clone();
+            self.update_deleted_stats(stream_name, meta_for_stats, dates.clone())
+                .await?;
+            let manifests = &mut meta.snapshot.manifest_list;
+            // Filter out items whose manifest_path contains any of the dates_to_delete
+            manifests.retain(|item| !dates.iter().any(|date| item.manifest_path.contains(date)));
+            PARSEABLE.get_stream(stream_name)?.reset_first_event_at();
+            meta.first_event_at = None;
+            self.put_snapshot(stream_name, meta.snapshot).await?;
+        }
+        match PARSEABLE.options.mode {
+            Mode::All | Mode::Ingest => Ok(self.get_first_event(stream_name, Vec::new()).await?),
+            Mode::Query => Ok(self.get_first_event(stream_name, dates).await?),
+            Mode::Index => Err(ObjectStorageError::UnhandledError(Box::new(
+                std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    "Can't remove manifest from within Index server",
+                ),
+            ))),
+        }
+    }
+
+    async fn update_deleted_stats(
+        &self,
+        stream_name: &str,
+        meta: ObjectStoreFormat,
+        dates: Vec<String>,
+    ) -> Result<(), ObjectStorageError> {
+        let mut num_row: i64 = 0;
+        let mut storage_size: i64 = 0;
+        let mut ingestion_size: i64 = 0;
+
+        let mut manifests = meta.snapshot.manifest_list;
+        manifests.retain(|item| dates.iter().any(|date| item.manifest_path.contains(date)));
+        if !manifests.is_empty() {
+            for manifest in manifests {
+                let manifest_date = manifest.time_lower_bound.date_naive().to_string();
+                let _ = EVENTS_INGESTED_DATE.remove_label_values(&[
+                    stream_name,
+                    "json",
+                    &manifest_date,
+                ]);
+                let _ = EVENTS_INGESTED_SIZE_DATE.remove_label_values(&[
+                    stream_name,
+                    "json",
+                    &manifest_date,
+                ]);
+                let _ = EVENTS_STORAGE_SIZE_DATE.remove_label_values(&[
+                    "data",
+                    stream_name,
+                    "parquet",
+                    &manifest_date,
+                ]);
+                num_row += manifest.events_ingested as i64;
+                ingestion_size += manifest.ingestion_size as i64;
+                storage_size += manifest.storage_size as i64;
+            }
+        }
+        EVENTS_DELETED
+            .with_label_values(&[stream_name, "json"])
+            .add(num_row);
+        EVENTS_DELETED_SIZE
+            .with_label_values(&[stream_name, "json"])
+            .add(ingestion_size);
+        DELETED_EVENTS_STORAGE_SIZE
+            .with_label_values(&["data", stream_name, "parquet"])
+            .add(storage_size);
+        EVENTS_INGESTED
+            .with_label_values(&[stream_name, "json"])
+            .sub(num_row);
+        EVENTS_INGESTED_SIZE
+            .with_label_values(&[stream_name, "json"])
+            .sub(ingestion_size);
+        STORAGE_SIZE
+            .with_label_values(&["data", stream_name, "parquet"])
+            .sub(storage_size);
+        let stats = get_current_stats(stream_name, "json");
+        if let Some(stats) = stats {
+            if let Err(e) = self.put_stats(stream_name, &stats).await {
+                warn!("Error updating stats to objectstore due to error [{}]", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn get_first_event(
+        &self,
+        stream_name: &str,
+        dates: Vec<String>,
+    ) -> Result<Option<String>, ObjectStorageError> {
+        let mut first_event_at: String = String::default();
+        match PARSEABLE.options.mode {
+            Mode::Index => unimplemented!(),
+            Mode::All | Mode::Ingest => {
+                // get current snapshot
+                let stream_first_event = PARSEABLE.get_stream(stream_name)?.get_first_event();
+                if stream_first_event.is_some() {
+                    first_event_at = stream_first_event.unwrap();
+                } else {
+                    let mut meta = self.get_object_store_format(stream_name).await?;
+                    if meta.snapshot.manifest_list.is_empty() {
+                        info!("No manifest found for stream {stream_name}");
+                        return Err(ObjectStorageError::Custom("No manifest found".to_string()));
+                    }
+                    let manifest = &meta.snapshot.manifest_list[0];
+                    let path = partition_path(
+                        stream_name,
+                        manifest.time_lower_bound.date_naive(),
+                        manifest.time_upper_bound.date_naive(),
+                    );
+                    let Some(manifest) = self.get_manifest(&path).await? else {
+                        return Err(ObjectStorageError::UnhandledError(
+                            "Manifest found in snapshot but not in object-storage"
+                                .to_string()
+                                .into(),
+                        ));
+                    };
+                    if let Some(first_event) = manifest.files.first() {
+                        let (lower_bound, _) = first_event.get_bounds(
+                            meta.time_partition
+                                .as_ref()
+                                .map_or(DEFAULT_TIMESTAMP_KEY, |s| s.as_str()),
+                        );
+
+                        first_event_at = lower_bound.with_timezone(&Local).to_rfc3339();
+                        meta.first_event_at = Some(first_event_at.clone());
+                        self.put_stream_manifest(stream_name, &meta).await?;
+                        PARSEABLE
+                            .get_stream(stream_name)?
+                            .set_first_event_at(&first_event_at);
+                    }
+                }
+            }
+            Mode::Query => {
+                let ingestor_metadata = get_ingestor_info().await.map_err(|err| {
+                    error!("Fatal: failed to get ingestor info: {:?}", err);
+                    ObjectStorageError::from(err)
+                })?;
+                let mut ingestors_first_event_at: Vec<String> = Vec::new();
+                for ingestor in ingestor_metadata {
+                    let url = format!(
+                        "{}{}/logstream/{}/retention/cleanup",
+                        ingestor.domain_name,
+                        base_path_without_preceding_slash(),
+                        stream_name
+                    );
+                    let ingestor_first_event_at =
+                        handlers::http::cluster::send_retention_cleanup_request(
+                            &url,
+                            ingestor.clone(),
+                            &dates,
+                        )
+                        .await?;
+                    if !ingestor_first_event_at.is_empty() {
+                        ingestors_first_event_at.push(ingestor_first_event_at);
+                    }
+                }
+                if ingestors_first_event_at.is_empty() {
+                    return Ok(None);
+                }
+                first_event_at = ingestors_first_event_at.iter().min().unwrap().to_string();
+            }
+        }
+
+        Ok(Some(first_event_at))
     }
 }
 
@@ -877,7 +1271,7 @@ pub fn alert_json_path(alert_id: Ulid) -> RelativePathBuf {
 }
 
 #[inline(always)]
-pub fn manifest_path(prefix: &str) -> RelativePathBuf {
+pub fn manifest_path(prefix: impl AsRef<RelativePath>) -> RelativePathBuf {
     match &PARSEABLE.options.mode {
         Mode::Ingest => {
             let id = PARSEABLE
@@ -886,8 +1280,8 @@ pub fn manifest_path(prefix: &str) -> RelativePathBuf {
                 .expect(INGESTOR_EXPECT)
                 .get_ingestor_id();
             let manifest_file_name = format!("ingestor.{id}.{MANIFEST_FILE}");
-            RelativePathBuf::from_iter([prefix, &manifest_file_name])
+            prefix.as_ref().join(manifest_file_name)
         }
-        _ => RelativePathBuf::from_iter([prefix, MANIFEST_FILE]),
+        _ => prefix.as_ref().join(MANIFEST_FILE),
     }
 }

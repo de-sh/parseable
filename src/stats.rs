@@ -16,8 +16,6 @@
  *
  */
 
-use std::sync::Arc;
-
 use prometheus::core::Collector;
 use prometheus::proto::MetricFamily;
 use prometheus::IntGaugeVec;
@@ -29,7 +27,6 @@ use crate::metrics::{
     EVENTS_STORAGE_SIZE_DATE, LIFETIME_EVENTS_INGESTED, LIFETIME_EVENTS_INGESTED_SIZE,
     LIFETIME_EVENTS_STORAGE_SIZE, STORAGE_SIZE,
 };
-use crate::storage::{ObjectStorage, ObjectStorageError, ObjectStoreFormat};
 
 /// Helper struct type created by copying stats values from metadata
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -104,67 +101,6 @@ pub fn get_current_stats(stream_name: &str, format: &'static str) -> Option<Full
             storage: deleted_events_storage_size,
         },
     })
-}
-
-pub async fn update_deleted_stats(
-    storage: Arc<dyn ObjectStorage>,
-    stream_name: &str,
-    meta: ObjectStoreFormat,
-    dates: Vec<String>,
-) -> Result<(), ObjectStorageError> {
-    let mut num_row: i64 = 0;
-    let mut storage_size: i64 = 0;
-    let mut ingestion_size: i64 = 0;
-
-    let mut manifests = meta.snapshot.manifest_list;
-    manifests.retain(|item| dates.iter().any(|date| item.manifest_path.contains(date)));
-    if !manifests.is_empty() {
-        for manifest in manifests {
-            let manifest_date = manifest.time_lower_bound.date_naive().to_string();
-            let _ =
-                EVENTS_INGESTED_DATE.remove_label_values(&[stream_name, "json", &manifest_date]);
-            let _ = EVENTS_INGESTED_SIZE_DATE.remove_label_values(&[
-                stream_name,
-                "json",
-                &manifest_date,
-            ]);
-            let _ = EVENTS_STORAGE_SIZE_DATE.remove_label_values(&[
-                "data",
-                stream_name,
-                "parquet",
-                &manifest_date,
-            ]);
-            num_row += manifest.events_ingested as i64;
-            ingestion_size += manifest.ingestion_size as i64;
-            storage_size += manifest.storage_size as i64;
-        }
-    }
-    EVENTS_DELETED
-        .with_label_values(&[stream_name, "json"])
-        .add(num_row);
-    EVENTS_DELETED_SIZE
-        .with_label_values(&[stream_name, "json"])
-        .add(ingestion_size);
-    DELETED_EVENTS_STORAGE_SIZE
-        .with_label_values(&["data", stream_name, "parquet"])
-        .add(storage_size);
-    EVENTS_INGESTED
-        .with_label_values(&[stream_name, "json"])
-        .sub(num_row);
-    EVENTS_INGESTED_SIZE
-        .with_label_values(&[stream_name, "json"])
-        .sub(ingestion_size);
-    STORAGE_SIZE
-        .with_label_values(&["data", stream_name, "parquet"])
-        .sub(storage_size);
-    let stats = get_current_stats(stream_name, "json");
-    if let Some(stats) = stats {
-        if let Err(e) = storage.put_stats(stream_name, &stats).await {
-            warn!("Error updating stats to objectstore due to error [{}]", e);
-        }
-    }
-
-    Ok(())
 }
 
 pub fn delete_stats(stream_name: &str, format: &'static str) -> prometheus::Result<()> {

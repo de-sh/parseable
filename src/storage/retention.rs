@@ -169,7 +169,6 @@ impl From<Retention> for Vec<TaskView> {
 }
 
 mod action {
-    use crate::catalog::remove_manifest_from_snapshot;
     use crate::parseable::PARSEABLE;
     use chrono::{Days, NaiveDate, Utc};
     use futures::{stream::FuturesUnordered, StreamExt};
@@ -194,8 +193,9 @@ mod action {
         let dates = dates_to_delete.clone();
         if !dates.is_empty() {
             let delete_tasks = FuturesUnordered::new();
-            let res_remove_manifest =
-                remove_manifest_from_snapshot(store.clone(), &stream_name, dates.clone()).await;
+            let res_remove_manifest = store
+                .remove_manifest_from_snapshot(&stream_name, dates.clone())
+                .await;
 
             for date in dates_to_delete {
                 let path = RelativePathBuf::from_iter([&stream_name, &date]);
