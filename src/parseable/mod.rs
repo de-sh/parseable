@@ -25,9 +25,7 @@ use bytes::Bytes;
 use chrono::Utc;
 use clap::{error::ErrorKind, Parser};
 use http::{header::CONTENT_TYPE, HeaderName, HeaderValue, StatusCode};
-use itertools::Itertools;
 use once_cell::sync::Lazy;
-use relative_path::RelativePathBuf;
 pub use staging::StagingError;
 use streams::StreamRef;
 pub use streams::{StreamNotFound, Streams};
@@ -37,7 +35,7 @@ use tracing::error;
 use crate::connectors::kafka::config::KafkaConfig;
 use crate::{
     cli::{Cli, Options, StorageOptions},
-    event::{commit_schema, error::EventError, format::LogSource},
+    event::{error::EventError, format::LogSource},
     handlers::{
         http::{
             cluster::{sync_streams_with_ingestors, INTERNAL_STREAM_NAME},
@@ -52,7 +50,7 @@ use crate::{
     static_schema::{convert_static_schema_to_arrow_schema, StaticSchema},
     storage::{
         object_storage::parseable_json_path, ObjectStorageError, ObjectStorageProvider,
-        ObjectStoreFormat, Owner, Permisssion, StreamType, STREAM_ROOT_DIRECTORY,
+        ObjectStoreFormat, Owner, Permisssion, StreamType,
     },
     validator,
 };
@@ -768,47 +766,21 @@ impl Parseable {
         Some(first_event_at.to_string())
     }
 
-    /// Fetches the schema for the specified stream.
-    ///
-    /// # Arguments
-    ///
-    /// * `stream_name` - The name of the stream to fetch the schema for.
-    ///
-    /// # Returns
-    ///
-    /// An `anyhow::Result` containing the `arrow_schema::Schema` for the specified stream.
-    pub async fn fetch_schema(&self, stream_name: &str) -> anyhow::Result<Schema> {
-        let path_prefix = RelativePathBuf::from_iter([stream_name, STREAM_ROOT_DIRECTORY]);
-        let store = self.storage.get_object_store();
-        let res: Vec<Schema> = store
-            .get_objects(
-                Some(&path_prefix),
-                Box::new(|file_name: String| file_name.contains(".schema")),
-            )
-            .await?
-            .iter()
-            // we should be able to unwrap as we know the data is valid schema
-            .map(|byte_obj| serde_json::from_slice(byte_obj).expect("data is valid json"))
-            .collect_vec();
-
-        let new_schema = Schema::try_merge(res)?;
-        Ok(new_schema)
-    }
-
     pub async fn update_schema_when_distributed(
         &self,
         tables: &Vec<String>,
     ) -> Result<(), EventError> {
         if self.options.mode == Mode::Query {
             for table in tables {
-                if let Ok(new_schema) = self.fetch_schema(table).await {
+                if let Ok(schemas) = self.storage.get_object_store().fetch_schemas(table).await {
+                    let new_schema = Schema::try_merge(schemas)?;
                     // commit schema merges the schema internally and updates the schema in storage.
                     self.storage
                         .get_object_store()
                         .commit_schema(table, new_schema.clone())
                         .await?;
 
-                    commit_schema(table, Arc::new(new_schema))?;
+                    self.get_stream(table)?.commit_schema(new_schema)?;
                 }
             }
         }

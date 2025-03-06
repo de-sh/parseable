@@ -799,6 +799,32 @@ pub trait ObjectStorage: Debug + Send + Sync + 'static {
         let new_schema = Schema::try_merge(vec![schema, stream_schema]).unwrap();
         self.put_schema(stream_name, &new_schema).await
     }
+
+    /// Fetches all schemas associated with a specified stream.
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_name` - The name of the stream to fetch the schema for.
+    ///
+    /// # Returns
+    ///
+    /// An array of `arrow_schema::Schema` for the specified stream.
+    async fn fetch_schemas(&self, stream_name: &str) -> Result<Vec<Schema>, ObjectStorageError> {
+        let path_prefix = RelativePathBuf::from_iter([stream_name, STREAM_ROOT_DIRECTORY]);
+        let mut schemas: Vec<Schema> = vec![];
+        for byte_obj in self
+            .get_objects(
+                Some(&path_prefix),
+                Box::new(|file_name: String| file_name.contains(".schema")),
+            )
+            .await?
+        {
+            let schema = serde_json::from_slice(&byte_obj)?;
+            schemas.push(schema);
+        }
+
+        Ok(schemas)
+    }
 }
 
 #[inline(always)]
