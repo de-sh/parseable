@@ -216,10 +216,10 @@ impl FlightService for AirServiceImpl {
         })?;
         let time = Instant::now();
 
-        let (records, _) = match query.execute(&stream_name).await {
-            Ok((records, fields)) => (records, fields),
-            Err(err) => return Err(Status::internal(err.to_string())),
-        };
+        let (records, _) = query
+            .execute(&stream_name)
+            .await
+            .map_err(|err| Status::internal(err.to_string()))?;
 
         /*
         * INFO: No returning the schema with the data.
