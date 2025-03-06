@@ -131,12 +131,11 @@ impl Query {
         SessionContext::new_with_state(state)
     }
 
-    #[tokio::main(flavor = "multi_thread")]
     pub async fn execute(
         &self,
-        stream_name: String,
+        stream_name: &str,
     ) -> Result<(Vec<RecordBatch>, Vec<String>), ExecuteError> {
-        let time_partition = PARSEABLE.get_stream(&stream_name)?.get_time_partition();
+        let time_partition = PARSEABLE.get_stream(stream_name)?.get_time_partition();
 
         let df = QUERY_SESSION
             .execute_logical_plan(self.final_logical_plan(&time_partition))
