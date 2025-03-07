@@ -304,41 +304,31 @@ impl Parseable {
         let mut stream_metadata = ObjectStoreFormat::default();
         let stream_metadata_bytes = storage.create_stream_from_ingestor(stream_name).await?;
         if !stream_metadata_bytes.is_empty() {
-            stream_metadata = serde_json::from_slice::<ObjectStoreFormat>(&stream_metadata_bytes)?;
+            stream_metadata = serde_json::from_slice(&stream_metadata_bytes)?;
         }
 
         let mut schema = Arc::new(Schema::empty());
         let schema_bytes = storage.create_schema_from_ingestor(stream_name).await?;
         if !schema_bytes.is_empty() {
-            schema = serde_json::from_slice::<Arc<Schema>>(&schema_bytes)?;
+            schema = serde_json::from_slice(&schema_bytes)?;
         }
 
-        let static_schema: HashMap<String, Arc<Field>> = schema
-            .fields
-            .into_iter()
-            .map(|field| (field.name().to_string(), field.clone()))
-            .collect();
-
-        let created_at = stream_metadata.created_at;
-        let time_partition = stream_metadata.time_partition.unwrap_or_default();
-        let time_partition_limit = stream_metadata
-            .time_partition_limit
-            .and_then(|limit| limit.parse().ok());
-        let custom_partition = stream_metadata.custom_partition;
-        let static_schema_flag = stream_metadata.static_schema_flag;
-        let stream_type = stream_metadata.stream_type;
-        let schema_version = stream_metadata.schema_version;
-        let log_source = stream_metadata.log_source;
         let metadata = LogStreamMetadata::new(
-            created_at,
-            time_partition,
-            time_partition_limit,
-            custom_partition,
-            static_schema_flag,
-            static_schema,
-            stream_type,
-            schema_version,
-            log_source,
+            stream_metadata.created_at,
+            stream_metadata.time_partition.unwrap_or_default(),
+            stream_metadata
+                .time_partition_limit
+                .and_then(|limit| limit.parse().ok()),
+            stream_metadata.custom_partition,
+            stream_metadata.static_schema_flag,
+            schema
+                .fields
+                .into_iter()
+                .map(|field| (field.name().to_string(), field.clone()))
+                .collect(),
+            stream_metadata.stream_type,
+            stream_metadata.schema_version,
+            stream_metadata.log_source,
         );
         self.streams.create(
             self.options.clone(),
