@@ -172,14 +172,21 @@ impl Parseable {
         )
     }
 
-    /// Checks for the stream in memory, or loads it from storage when in distributed mode
-    pub async fn check_or_load_stream(&self, stream_name: &str) -> bool {
-        !self.streams.contains(stream_name)
-            && (self.options.mode != Mode::Query
-                || !self
-                    .create_stream_and_schema_from_storage(stream_name)
-                    .await
-                    .unwrap_or_default())
+    /// Checks for the stream in memory, or loads it from storage when in distributed mode.
+    /// Returns `Ok(true)` only when parseable is aware of such a stream, either in memory
+    /// or on backing storage.
+    pub async fn check_or_load_stream_when_distributed(
+        &self,
+        stream_name: &str,
+    ) -> Result<bool, StreamError> {
+        if matches!(self.options.mode, Mode::Ingest | Mode::All) // don't check for streams
+            && !self.streams.contains(stream_name)
+        {
+            return Ok(false);
+        }
+
+        self.create_stream_and_schema_from_storage(stream_name)
+            .await
     }
 
     // validate the storage, if the proper path for staging directory is provided
