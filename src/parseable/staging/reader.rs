@@ -658,6 +658,56 @@ mod tests {
     }
 
     #[test]
+    fn test_in_between_finish() -> io::Result<()> {
+        let dir = TempDir::new().unwrap();
+        let file_path = dir.path().join("test_single.arrow");
+
+        // Create a schema
+        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
+
+        // Create a single batch
+        let batch =
+            RecordBatch::try_new(schema.clone(), vec![Arc::new(Int32Array::from(vec![42]))])
+                .expect("Failed to create batch");
+
+        // Write batch to file, causes in-between finish
+        write_test_batches(&file_path, &schema, &[batch])?;
+
+        // Create another batch
+        let batch =
+            RecordBatch::try_new(schema.clone(), vec![Arc::new(Int32Array::from(vec![69]))])
+                .expect("Failed to create batch");
+
+        // Write second batch to file, final finish
+        write_test_batches(&file_path, &schema, &[batch])?;
+
+        let mut reader = MergedReverseRecordReader::try_new(&[file_path]).merged_iter(schema, None);
+
+        // Should get the batch
+        let result_batch = reader.next().expect("Failed to read batch");
+        let id_array = result_batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .unwrap();
+        assert_eq!(id_array.value(0), 69);
+
+        // Should get the batch
+        let result_batch = reader.next().expect("Failed to read batch");
+        let id_array = result_batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .unwrap();
+        assert_eq!(id_array.value(0), 69);
+
+        // No more batches
+        assert!(reader.next().is_none());
+
+        Ok(())
+    }
+
+    #[test]
     fn test_large_buffer_resizing() {
         // Test that buffer resizes correctly for large sections
         let data = vec![1; 10000]; // 10KB of data
