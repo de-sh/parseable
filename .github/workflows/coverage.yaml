@@ -15,10 +15,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - name: Check disk space
+        run: df -h
 
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ${{ runner.os }}-cargo
+      - name: Check disk space
+        run: df -h
 
       - uses: taiki-e/install-action@v2
         with:
@@ -37,8 +41,14 @@ jobs:
       - name: Check with clippy
         run: cargo hack clippy --verbose --each-feature --no-dev-deps -- -D warnings
 
+      - name: Check disk space
+        run: df -h
+
       - name: Tests
         run: cargo hack --each-feature llvm-cov --no-report nextest
+
+      - name: Check disk space
+        run: df -h
 
       - name: Generate coverage report
         run: cargo llvm-cov report --lcov --output-path coverage.lcov
