@@ -538,6 +538,7 @@ impl Stream {
         Schema::try_merge(vec![schema, current_schema]).unwrap()
     }
 
+    /// Stores updated schema in-memory
     pub fn commit_schema(&self, schema: Schema) -> Result<(), StagingError> {
         let mut metadata = self.metadata.write().expect(LOCK_EXPECT);
         let current_schema = Schema::new(metadata.schema.values().cloned().collect::<Fields>());

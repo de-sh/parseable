@@ -870,6 +870,7 @@ pub trait ObjectStorage: Debug + Send + Sync + 'static {
         Ok(())
     }
 
+    /// Stores updated schema into storage
     async fn commit_schema(
         &self,
         stream_name: &str,

@@ -829,6 +829,7 @@ impl Parseable {
         Some(first_event_at.to_string())
     }
 
+    /// Updates schema by merging schemas stored by ingestors when running in Query mode
     pub async fn update_schema_when_distributed(
         &self,
         tables: &Vec<String>,
