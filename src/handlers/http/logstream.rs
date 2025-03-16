@@ -264,17 +264,17 @@ pub async fn get_stats(
     let stats = {
         let ingestion_stats = IngestionStats::new(
             stats.current_stats.events,
-            format!("{} Bytes", stats.current_stats.ingestion),
+            stats.current_stats.ingestion,
             stats.lifetime_stats.events,
-            format!("{} Bytes", stats.lifetime_stats.ingestion),
+            stats.lifetime_stats.ingestion,
             stats.deleted_stats.events,
-            format!("{} Bytes", stats.deleted_stats.ingestion),
+            stats.deleted_stats.ingestion,
             "json",
         );
         let storage_stats = StorageStats::new(
-            format!("{} Bytes", stats.current_stats.storage),
-            format!("{} Bytes", stats.lifetime_stats.storage),
-            format!("{} Bytes", stats.deleted_stats.storage),
+            stats.current_stats.storage,
+            stats.lifetime_stats.storage,
+            stats.deleted_stats.storage,
             "parquet",
         );
 
@@ -310,6 +310,14 @@ pub async fn get_stream_info(stream_name: Path<String>) -> Result<impl Responder
         } else {
             None
         };
+
+    let stream_log_source = storage
+        .get_log_source_from_storage(&stream_name)
+        .await
+        .unwrap_or_default();
+    PARSEABLE
+        .update_log_source(&stream_name, stream_log_source)
+        .await?;
 
     let hash_map = PARSEABLE.streams.read().unwrap();
     let stream_meta = hash_map

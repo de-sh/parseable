@@ -34,9 +34,9 @@ use tracing::error;
 
 use crate::event::error::EventError;
 use crate::metrics::QUERY_EXECUTE_TIME;
-use crate::parseable::PARSEABLE;
+use crate::parseable::{StreamNotFound, PARSEABLE};
 use crate::query::error::ExecuteError;
-use crate::query::{CountsRequest, CountsResponse, Query as LogicalQuery};
+use crate::query::{execute, CountsRequest, CountsResponse, Query as LogicalQuery};
 use crate::query::{TableScanVisitor, QUERY_SESSION};
 use crate::rbac::Users;
 use crate::response::QueryResponse;
@@ -124,7 +124,8 @@ pub async fn query(req: HttpRequest, query_request: Query) -> Result<HttpRespons
 
         return Ok(HttpResponse::Ok().json(response));
     }
-    let (records, fields) = query.execute(table_name.clone()).await?;
+
+    let (records, fields) = execute(query, &table_name).await?;
 
     let response = QueryResponse {
         records,
@@ -297,6 +298,8 @@ Description: {0}"#
     ActixError(#[from] actix_web::Error),
     #[error("Error: {0}")]
     Anyhow(#[from] anyhow::Error),
+    #[error("Error: {0}")]
+    StreamNotFound(#[from] StreamNotFound),
 }
 
 impl actix_web::ResponseError for QueryError {
