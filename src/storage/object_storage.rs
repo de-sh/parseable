@@ -877,7 +877,7 @@ pub trait ObjectStorage: Debug + Send + Sync + 'static {
         schema: Schema,
     ) -> Result<(), ObjectStorageError> {
         let stream_schema = self.get_schema(stream_name).await?;
-        let new_schema = Schema::try_merge(vec![schema, stream_schema]).unwrap();
+        let new_schema = Schema::try_merge(vec![schema, stream_schema])?;
         self.put_schema(stream_name, &new_schema).await
     }
 
